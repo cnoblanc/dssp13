@@ -1,0 +1,14 @@
+name: dssp_projet_dvf
+channels:
+  - defaults
+dependencies:
+  - jupyterlab
+  - pandas
+  - numpy
+  - scipy
+  - seaborn
+  - nodejs
+  - matplotlib
+  - ipywidgets
+  - scikit-learn
+  - psycopg2
