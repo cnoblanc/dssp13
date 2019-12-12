@@ -7,10 +7,16 @@ from functools import partial
 import datetime
 import re
 
-startTime=datetime.datetime.now()
+############################
+# General Parameters #######
+############################
+HDFS_base_path="/user/christophe.noblanc/datacamp"
+appName='christophe'
 RowCountToShow=5
+
+startTime=datetime.datetime.now()
 #start "spark session" 
-spark = SparkSession.builder.appName('christophe').getOrCreate()
+spark = SparkSession.builder.appName(appName).getOrCreate()
 sc = spark.sparkContext
 #A.load tsv into a data frame:
 #1.read the raw text and split it to fields (the text file does not contain a header)
@@ -28,7 +34,7 @@ print dataDF.printSchema()
 
 
 #########################################################
-# PART I : Manage the Tags (only applyied in Train dataset)
+# PART I
 # Extract the Tags into an array and then split the Tags in columns Flags 0/1
 #########################################################
 # B.UDF
@@ -78,41 +84,25 @@ mapFunction = partial(array_string_transform,tags=possible_tags)
 #from a DF to an RDD and back	
 dataDF = dataDF.rdd.map(mapFunction).toDF()
 print "############### : FROM DF TO RDD AND BACK : 4 new columns appear"
-#print dataDF.show(RowCountToShow)
-#print dataDF.head(RowCountToShow)
-#print "###############"
-# print dataDF.show()
+print dataDF.show(RowCountToShow)
 
 #########################################################
 # PART II
 # Features EXAMPLES
-# TODO : create a new col "text" that contains only the title,
-#        and use it to extract words and calculate the TF & TF_IDF
-# TODO : remove HTML tags from the "body"
-# TODO : not only use "title" , but also use "body" in "title".
-# TODO : exclude ponctuation
-# TODO : replace lemma (synomymes, nettoyage des conjugaisons, pluriels)
-# TODO : feature selection (enlever les mots les moins utiles)
-# TODO : in "text" field, use 2 or 3 times the "title" (to increase importance of the title)
-#
 #########################################################
-# Classic TF-IDF (with hashing)
+#Classic TF-IDF (with hashing)
 from pyspark.ml.feature import HashingTF, IDF, Tokenizer
 # 1. split text field into words (Tokenize)
 tokenizer = Tokenizer(inputCol="title", outputCol="words_title")
 dataDF = tokenizer.transform(dataDF)
 print "################ : New column with tokenized Title"
-#print dataDF.show(RowCountToShow)
-#print dataDF.head(RowCountToShow)
-#print "################"	
+print dataDF.show(RowCountToShow)
 
 # 2. compute term frequencies
 hashingTF = HashingTF(inputCol="words_title", outputCol="tf_title")
 dataDF = hashingTF.transform(dataDF)
 print "################ TERM frequencies:"
-#print dataDF.show(RowCountToShow)
-#print dataDF.head(RowCountToShow)
-#print "################"
+print dataDF.show(RowCountToShow)
 
 #3. IDF computation
 idf = IDF(inputCol="tf_title", outputCol="tf_idf_title")
@@ -122,8 +112,6 @@ print "################ TF_IDF vector: Start transform()"
 dataDF = idfModel.transform(dataDF)
 print "################ TF_IDF vector:"
 print dataDF.show(RowCountToShow)
-#print dataDF.head(RowCountToShow)
-print "################"
 
 #########################################################
 # Apply same data Prep process (pipeline) on Valid Data
@@ -142,9 +130,8 @@ print "##### (Valid) ########## TF_IDF vector : done."
 #########################################################
 # Save prepared Data for ML next step
 #########################################################
-base_path="/user/christophe.noblanc/datacamp"
-fileName_train=base_path+"/train_features_001.parquet"
-fileName_valid=base_path+"/valid_features_001.parquet"
+fileName_train=HDFS_base_path+"/train_features_001.parquet"
+fileName_valid=HDFS_base_path+"/valid_features_001.parquet"
 dataDF.write.format("parquet").mode("overwrite").save("hdfs://"+fileName_train)
 validDF.write.format("parquet").mode("overwrite").save("hdfs://"+fileName_valid)
 

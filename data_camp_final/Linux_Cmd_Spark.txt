@@ -1,0 +1,3 @@
+# To run the Spark commande line
+
+spark-submit --master yarn --conf spark.local.dir=/home/christophe.noblanc/tmp --num-executors 4 --driver-memory 2g --conf spark.ui.port=6660   001_datacamp1.py

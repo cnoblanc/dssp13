@@ -4,11 +4,18 @@ from pyspark.sql.types import StringType
 from pyspark.sql.types import ArrayType
 from pyspark.sql.functions import udf
 from functools import partial
+import datetime
 import re
 
+############################
+# General Parameters #######
+############################
+appName='christophe'
+
+startTime=datetime.datetime.now()
 RowCountToShow=5
 #start "spark session" 
-spark = SparkSession.builder.appName('example').getOrCreate()
+spark = SparkSession.builder.appName(appName).getOrCreate()
 sc = spark.sparkContext
 #A.load tsv into a data frame:
 #1.read the raw text and split it to fields (the text file does not contain a header)
@@ -18,6 +25,7 @@ dataDF=dataRDD.toDF(['id','title','body','tags'])
 # print one line of the dataframe
 print "################ DATA to DF"
 print dataDF.show(RowCountToShow)
+print "Source Data (Train&Test) Row Count=",dataDF.shape[0]
 #print dataDF.head(RowCountToShow)
 print "################"
 
@@ -101,13 +109,29 @@ print "################ TERM frequencies:"
 
 #3. IDF computation
 idf = IDF(inputCol="tf_title", outputCol="tf_idf_title")
+print "################ TF_IDF vector: Start fit()"
 idfModel = idf.fit(dataDF) #model that contains "dictionary" and IDF values
+print "################ TF_IDF vector: Start transform()"
 dataDF = idfModel.transform(dataDF)
 print "################ TF_IDF vector:"
 print dataDF.show(RowCountToShow)
 #print dataDF.head(RowCountToShow)
 print "################"
 
+#########################################################
+# Apply same data Prep process (pipeline) on Valid Data
+#########################################################
+#1. load test data
+validDF = sc.textFile('/dssp/datacamp/test.tsv').map(lambda x:x.strip().split('\t')).toDF(['id','title','body'])
+print "##### (Valid) ########## dataset loaded  "
+#2.transform test data
+validDF = tokenizer.transform(validDF)
+print "##### (Valid) ########## tokenized Title : done."
+validDF = hashingTF.transform(validDF)
+print "##### (Valid) ########## Term Frequencies : done."
+validDF = idfModel.transform(validDF)
+print "##### (Valid) ########## TF_IDF vector : done."
+print "Validation Row Count=",validDF.shape[0]
 
 #########################################################
 # PART III
@@ -115,7 +139,7 @@ print "################"
 #########################################################
 #B. Train and Evaluate Features with simple logistic regression ON ONE LABEL
 #1. Simple evaluation methodology : train and test split
-(train,test)=dataDF.rdd.randomSplit([0.8,0.2])
+(train,test)=dataDF.rdd.randomSplit([0.8,0.2],seed=42)
 #2.initialize model parameters ...we use a simple model here
 from pyspark.ml.classification import LogisticRegression
 
@@ -125,8 +149,8 @@ print "################ Start fitting the model"
 lrModel = logistic.fit(train.toDF())
 
 #4.Apply model to test data
-print "################ Apply model to train :transform()"
-result_train=lrModel.transform(test.toDF())
+print "################ Apply model to train : starting transform()"
+result_train=lrModel.transform(train.toDF())
 print "################ Apply Model for Train : Done"
 result_test=lrModel.transform(test.toDF())
 print "################ Apply Model for Test : Done"
@@ -182,7 +206,7 @@ def F1_multilabel(x):
 	 
 print "################ F1 Score "
 F1_Test_score=result_test_predlabels.map(F1_multilabel).mean()
-print "F1_Test_score = " F1_Test_score
+print("F1_Test_score = ",F1_Test_score)
 print "################"
 
 
@@ -190,16 +214,6 @@ print "################"
 # PART IV
 # Submit on Validation data
 #########################################################
-#1. load test data
-validDF = sc.textFile('/dssp/datacamp/test.tsv').map(lambda x:x.strip().split('\t')).toDF(['id','title','body'])
-print "##### (Valid) ########## dataset loaded  "
-#2.transform test data
-validDF = tokenizer.transform(validDF)
-print "##### (Valid) ########## tokenized Title : done."
-validDF = hashingTF.transform(validDF)
-print "##### (Valid) ########## Term Frequencies : done."
-validDF = idfModel.transform(validDF)
-print "##### (Valid) ########## TF_IDF vector : done."
 
 #3.Apply model to test data
 def predictions_valid(row):
@@ -224,8 +238,13 @@ from dssp_evaluation import tools
 print "################ Scoring on Valid dataset"
 DSSP_score=tools.evaluateDF(sc,result_valid,prediction_col='predicted',id_col='id')
 print "---------------------- SUMMARY :"
-print "eval_train (evaluator) =" eval_train
-print "eval_test  (evaluator) =" eval_test
-print "F1 Test Score          =" F1_Test_score
-print "DSSP_score (valid)     =" DSSP_score
+print "eval_train (evaluator) =", eval_train
+print "eval_test  (evaluator) =", eval_test
+print "F1 Test Score          =", F1_Test_score
+print "DSSP_score (valid)     =", DSSP_score
 print "################ : END."
+endTime=datetime.datetime.now()
+duration = endTime - startTime 
+duration_tuple=divmod(duration.total_seconds(), 60)
+print "Total Duration Time (m)= ",duration_tuple[0] 
+print "Total Duration Time (s)= ",duration_tuple[1] 

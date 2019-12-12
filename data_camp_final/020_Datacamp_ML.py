@@ -8,19 +8,24 @@ from functools import partial
 import datetime
 import re
 
-startTime=datetime.datetime.now()
+############################
+# General Parameters #######
+############################
+HDFS_base_path="/user/christophe.noblanc/datacamp"
+appName='christophe'
 RowCountToShow=5
+
+startTime=datetime.datetime.now()
 #start "spark session" 
-spark = SparkSession.builder.appName('example').getOrCreate()
+spark = SparkSession.builder.appName('christophe').getOrCreate()
 sc = spark.sparkContext
 
 #########################################################
 # Load Parquet files
 #########################################################
 from pyspark.sql import SQLContext
-base_path="/user/christophe.noblanc/datacamp"
-fileName_train=base_path+"/train_features_001.parquet"
-fileName_valid=base_path+"/valid_features_001.parquet"
+fileName_train=HDFS_base_path+"/train_features_001.parquet"
+fileName_valid=HDFS_base_path+"/valid_features_001.parquet"
 sqlContext = SQLContext(sc)
 print "################ Start loading Train DataFrame"
 dataDF = sqlContext.read.parquet("hdfs://" + fileName_train)
@@ -28,7 +33,7 @@ print "################ Start loading Valid DataFrame"
 validDF = sqlContext.read.parquet("hdfs://" + fileName_valid)
 print "################ Loading DataFrame End"
 
-# print one line of the dataframe
+# print lines of the dataframe
 print "################ Train Data read"
 print dataDF.show(RowCountToShow)
 #print "Source Data (Train&Test) Row Count=",dataDF.count()
@@ -48,25 +53,24 @@ tfidf_col_name="tf_idf_title"
 (train,test)=dataDF.rdd.randomSplit([0.8,0.2],seed=42)
 #2.initialize model parameters ...we use a simple model here
 from pyspark.ml.classification import LogisticRegression
-#from pyspark.ml.classification import LogisticRegressionWithSGD
 
 #3. Fit the model
 print "################ Start fitting the model : html"
 max_iterations=10
 col_name="html"
-reg_html=LogisticRegressionWithSGD(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred",rawPredictionCol=col_name+"_pred_raw",maxIter=max_iterations)
+reg_html=LogisticRegression(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred",rawPredictionCol=col_name+"_pred_raw",maxIter=max_iterations)
 Model_html = reg_html.fit(train.toDF())
 print "################ Start fitting the model : jquery"
 col_name="jquery"
-reg_jquery=LogisticRegressionWithSGD(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred",rawPredictionCol=col_name+"_pred_raw",maxIter=max_iterations)
+reg_jquery=LogisticRegression(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred",rawPredictionCol=col_name+"_pred_raw",maxIter=max_iterations)
 Model_jquery = reg_jquery.fit(train.toDF())
 print "################ Start fitting the model : css"
 col_name="css"
-reg_css=LogisticRegressionWithSGD(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred",rawPredictionCol=col_name+"_pred_raw",maxIter=max_iterations)
+reg_css=LogisticRegression(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred",rawPredictionCol=col_name+"_pred_raw",maxIter=max_iterations)
 Model_css = reg_css.fit(train.toDF())
 print "################ Start fitting the model : javascript"
 col_name="javascript"
-reg_javascript=LogisticRegressionWithSGD(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred",rawPredictionCol=col_name+"_pred_raw",maxIter=max_iterations)
+reg_javascript=LogisticRegression(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred",rawPredictionCol=col_name+"_pred_raw",maxIter=max_iterations)
 Model_javascript = reg_javascript.fit(train.toDF())
 
 #4.Apply model to test data
@@ -182,6 +186,7 @@ from dssp_evaluation import tools
 #we need a data frame with the predictions and the ids
 print "################ Scoring on Valid dataset"
 DSSP_score=tools.evaluateDF(sc,result_valid,prediction_col='predicted',id_col='id')
+
 print "---------------------- SUMMARY :"
 #print "eval_train (evaluator) =", eval_train
 #print "eval_test  (evaluator) =", eval_test
