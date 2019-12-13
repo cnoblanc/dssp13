@@ -1,9 +1,10 @@
 from pyspark.sql import SparkSession
 from pyspark.sql import Row
-from pyspark.sql.types import StringType
+from pyspark.sql.types import DoubleType,StringType
 from pyspark.sql.types import ArrayType
 from pyspark.sql.functions import udf
 from pyspark.sql.functions import col
+from pyspark.ml.feature import OneHotEncoder, StringIndexer,IndexToString, VectorAssembler
 from functools import partial
 import datetime
 import re
@@ -17,7 +18,7 @@ RowCountToShow=5
 
 startTime=datetime.datetime.now()
 #start "spark session" 
-spark = SparkSession.builder.appName('christophe').getOrCreate()
+spark = SparkSession.builder.appName(appName).getOrCreate()
 sc = spark.sparkContext
 
 #########################################################
@@ -33,7 +34,7 @@ print "################ Start loading Valid DataFrame"
 validDF = sqlContext.read.parquet("hdfs://" + fileName_valid)
 print "################ Loading DataFrame End"
 
-# print lines of the dataframe
+# print one line of the dataframe
 print "################ Train Data read"
 print dataDF.show(RowCountToShow)
 #print "Source Data (Train&Test) Row Count=",dataDF.count()
@@ -47,73 +48,69 @@ print validDF.show(RowCountToShow)
 #########################################################
 possible_tags = [u'javascript', u'css', u'jquery', u'html']
 tfidf_col_name="tf_idf_title"
+col_name="label"
+
+# Create the consolidated Target : 
+label_stringIndexer = StringIndexer(inputCol = "tags_target", outputCol = "label").fit(dataDF)
+dataDF = label_stringIndexer.transform(dataDF)
+#labelReverse = IndexToString(inputCol = "label", outputCol="originalTarget",labels=label_stringIndexer.labels)
+#dataDF=labelReverse.transform(dataDF)
+
+print "############### Created Target of multi-Classes Tags"
+#print dataDF.show(RowCountToShow)
+#print label_stringIndexer.labels
+
+print "############### Select only needed columns in dataDF for multi-Classes Tags"
+dataDF=dataDF.select('id',tfidf_col_name,'array_tags','tags_target',col_name)
 
 #B. Train and Evaluate Features with simple logistic regression
 #1. Simple evaluation methodology : train and test split
 (train,test)=dataDF.rdd.randomSplit([0.8,0.2],seed=42)
+
 #2.initialize model parameters ...we use a simple model here
 from pyspark.ml.classification import LogisticRegression
+#from pyspark.ml.classification import LogisticRegressionWithSGD
 
 #3. Fit the model
-print "################ Start fitting the model : html"
+print "################ Start fitting the model : tags_target"
 max_iterations=10
-col_name="html"
-reg_html=LogisticRegression(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred",rawPredictionCol=col_name+"_pred_raw",maxIter=max_iterations)
-Model_html = reg_html.fit(train.toDF())
-print "################ Start fitting the model : jquery"
-col_name="jquery"
-reg_jquery=LogisticRegression(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred",rawPredictionCol=col_name+"_pred_raw",maxIter=max_iterations)
-Model_jquery = reg_jquery.fit(train.toDF())
-print "################ Start fitting the model : css"
-col_name="css"
-reg_css=LogisticRegression(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred",rawPredictionCol=col_name+"_pred_raw",maxIter=max_iterations)
-Model_css = reg_css.fit(train.toDF())
-print "################ Start fitting the model : javascript"
-col_name="javascript"
-reg_javascript=LogisticRegression(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred",rawPredictionCol=col_name+"_pred_raw",maxIter=max_iterations)
-Model_javascript = reg_javascript.fit(train.toDF())
+reg=LogisticRegression(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred",rawPredictionCol=col_name+"_pred_raw"
+		,maxIter=max_iterations,regParam=0.3, elasticNetParam=0)
+#,regParam=0.3, elasticNetParam=0
+
+model = reg.fit(train.toDF())
+print "################  fitting the model END"
 
 #4.Apply model to test data
+labelReversePred = IndexToString(inputCol = col_name+"_pred", outputCol="encoded_pred",labels=label_stringIndexer.labels)
+print labelReversePred.labels
 def apply_model(DF):
-    print "######## Model.Transform() for each TAG"
-    result_html=Model_html.transform(DF).select(col("id").alias("html_id"),'html_pred','html_pred_raw')
-    result_jquery=Model_jquery.transform(DF).select(col("id").alias("jquery_id"),'jquery_pred','jquery_pred_raw')
-    result_css=Model_css.transform(DF).select(col("id").alias("css_id"),'css_pred','css_pred_raw')
-    result_javascript=Model_javascript.transform(DF).select(col("id").alias("javascript_id"),'javascript_pred','javascript_pred_raw')
-    print "######## Merge each TAG predictions"
-    result=DF
-    result = result.join(result_html, result.id == result_html.html_id,how='left') 
-    result = result.join(result_jquery, result.id == result_jquery.jquery_id,how='left') 
-    result = result.join(result_css, result.id == result_css.css_id,how='left')
-    result = result.join(result_javascript, result.id == result_javascript.javascript_id,how='left')
-    return result
+	print "######## Model.Transform() to get predictions"
+	result=model.transform(DF)
+	print "######## Prediction plit into several columns"
+	result=labelReversePred.transform(result)
+	return result
 
 print "################ Apply model to train : starting transform()"
 result_train=apply_model(train.toDF())
 print "################ Apply Model for Train : Done"
 result_test=apply_model(test.toDF())
-print "################ Merge All TAGS predictions : Done"
+print "################ Apply Model for Test : Done"
 print result_test.show(RowCountToShow)
 
 #5. Evaluation of results
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-metricName="areaUnderPR"
-col_name="html"
-evaluator_html = BinaryClassificationEvaluator(rawPredictionCol=col_name+"_pred_raw",labelCol=col_name,metricName=metricName,)
-col_name="jquery"
-evaluator_jquery = BinaryClassificationEvaluator(rawPredictionCol=col_name+"_pred_raw",labelCol=col_name,metricName=metricName,)
-col_name="css"
-evaluator_css = BinaryClassificationEvaluator(rawPredictionCol=col_name+"_pred_raw",labelCol=col_name,metricName=metricName,)
-col_name="javascript"
-evaluator_javascript = BinaryClassificationEvaluator(rawPredictionCol=col_name+"_pred_raw",labelCol=col_name,metricName=metricName,)
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
+metricName="f1"
+col_name="label"
+#evaluator = MulticlassClassificationEvaluator(labelCol=col_name,predictionCol=col_name+"_pred",metricName=metricName,)
 
-#print "################ RESULT of (evaluator on Train) classifier for HTML label"
-#eval_train=evaluator_html.evaluate(result_train)
+print "################ RESULT of (evaluator on Train) classifier for label"
+#eval_train=evaluator.evaluate(result_train)
 #print eval_train
-#print "################ RESULT for : Test"
-#eval_test_html=evaluator_html.evaluate(result_test)
-#print eval_test_html
-#print "################"
+print "################ RESULT for : Test"
+#eval_test=evaluator.evaluate(result_test)
+#print eval_test
+print "################"
 
 
 # ##########################
@@ -125,10 +122,13 @@ evaluator_javascript = BinaryClassificationEvaluator(rawPredictionCol=col_name+"
 def predictions(row):
 	data = row.asDict()
 	labels=data['array_tags']
+	encoded_pred=data['encoded_pred']
 	predicted=[]
-	for tag in [u'javascript_pred', u'css_pred', u'jquery_pred', u'html_pred']:
-		if tag in data  and data[tag]==1:
-			predicted.append(tag.split('_')[0])
+	# Decode the encoded prediction
+	for i, char in enumerate(encoded_pred):
+		if char=='1':
+			# Add the associated TAG in the predicted array
+			predicted.append(possible_tags[i])
 	ret={'id':data['id'],'labels':labels,'predicted':predicted}
 	newRow = Row(*ret.keys()) 
 	newRow = newRow(*ret.values())
@@ -166,17 +166,25 @@ print "################"
 #3.Apply model to test data
 def predictions_valid(row):
 	data = row.asDict()
+	encoded_pred=data['encoded_pred']
 	predicted=[]
-	for tag in [u'javascript_pred', u'css_pred', u'jquery_pred', u'html_pred']:
-		if tag in data  and data[tag]==1:
-			predicted.append(tag.split('_')[0])
+
+	# Decode the encoded prediction
+	for i, char in enumerate(encoded_pred):
+		if char=='1':
+			# Add the associated TAG in the predicted array
+			predicted.append(possible_tags[i])
+
 	ret={'id':data['id'],'predicted':predicted}
 	newRow = Row(*ret.keys()) 
 	newRow = newRow(*ret.values())
 	return newRow 
 
+print "############### Select only needed columns in dataDF for multi-Classes Tags"
+validDF=validDF.select('id',tfidf_col_name)
+
 result_valid=apply_model(validDF)
-#result_valid=Model_html.transform(validDF)
+#result_valid=Model.transform(validDF)
 print "##### (Valid) ########## Apply Model : done."
 result_valid=result_valid.rdd.map(predictions_valid).toDF()
 print "##### (Valid) ########## Concatenation of Predicted Labels : done."
@@ -186,10 +194,9 @@ from dssp_evaluation import tools
 #we need a data frame with the predictions and the ids
 print "################ Scoring on Valid dataset"
 DSSP_score=tools.evaluateDF(sc,result_valid,prediction_col='predicted',id_col='id')
-
 print "---------------------- SUMMARY :"
-#print "eval_train (evaluator) =", eval_train
-#print "eval_test  (evaluator) =", eval_test
+#print "eval_train (MulticlassClassificationEvaluator F1) =", eval_train
+#print "eval_test  (MulticlassClassificationEvaluator F1) =", eval_test
 print "F1_Train_score         =", F1_Train_score
 print "F1 Test Score          =", F1_Test_score
 print "DSSP_score (valid)     =", DSSP_score

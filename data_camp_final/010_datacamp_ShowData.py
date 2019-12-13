@@ -11,7 +11,7 @@ import re
 ############################
 # General Parameters #######
 ############################
-HDFS_base_path="/user/christophe.noblanc/datacamp"
+HDFS_base_path="/dssp/shared/noblanc"
 appName='christophe'
 RowCountToShow=5
 

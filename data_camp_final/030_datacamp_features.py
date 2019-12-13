@@ -124,6 +124,10 @@ def array_string_transform(row,tags):#tags is broadcasted
 	#set a value of 1 if the corresponding tags exists
 	for existing_tag in data['array_tags']:
 		data[existing_tag] = 1
+	# EnCoding of Tags in the same order of possible_tags : ex '0101'=css+html
+	data['tags_target']=''
+	for existing_tag in possible_tags.value:
+		data['tags_target']=data['tags_target']+str(data[existing_tag])
 	#convert the dictionary back to a Row
 	newRow = Row(*data.keys()) #a. the Row object specification (column names)
 	newRow = newRow(*data.values()) #b. the corresponding column values
@@ -137,6 +141,9 @@ mapFunction = partial(array_string_transform,tags=possible_tags)
 dataDF = dataDF.rdd.map(mapFunction).toDF()
 print "############### : FROM DF TO RDD AND BACK : 4 new columns appear"
 #print dataDF.show(RowCountToShow)
+#print dataDF.head(RowCountToShow)
+#print "###############"
+# print dataDF.show()
 
 #########################################################
 # PART II
@@ -149,6 +156,8 @@ tokenizer = Tokenizer(inputCol="title", outputCol="words_title")
 dataDF = tokenizer.transform(dataDF)
 print "################ : New column with tokenized Title"
 #print dataDF.show(RowCountToShow)
+#print dataDF.head(RowCountToShow)
+#print "################"	
 
 # 2. compute term frequencies
 hashingTF = HashingTF(inputCol="words_title", outputCol="tf_title")
