@@ -141,22 +141,6 @@ print "############### : FROM DF TO RDD AND BACK : 4 new columns appear"
 #########################################################
 # PART II
 # Features EXAMPLES
-# TODO : create a new col "text" that contains only the title,
-#        and use it to extract words and calculate the TF & TF_IDF
-#		 -> impact on the next step ML (changing the column name of the splitted words)
-# TODO : using Stemming
-# TODO : remove HTML tags from the "body"
-# TODO : not only use "title" , but also use "body" and "title".
-# TODO : exclude ponctuation and unwanted caracters, exclude stopwords
-# TODO : replace lemma (synomymes, nettoyage des conjugaisons, pluriels)
-# TODO : feature selection (enlever les mots les moins utiles)
-# TODO : Using n-grams (not only 1-word, but sequence of words) : 2-grams, 3-grams, 4-grams.
-#	 	 https://spark.apache.org/docs/latest/ml-features.html#n-gram
-# TODO : in "text" field, use 2 or 3 times the "title" (to increase importance of the title)
-# TODO : In order to increase the accuracy of the results you may select a limited number of 
-#		  features using the chi- squared test. This way, you may decrease the number of dimensions 
-#		  by keeping the most important once, eliminating features that make your data noisy.
-#
 #########################################################
 # Classic TF-IDF (with hashing)
 from pyspark.ml.feature import HashingTF, IDF, Tokenizer
