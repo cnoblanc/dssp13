@@ -162,22 +162,25 @@ def data_quality(DF):
 	print "################ : trim & lower on body & title"
 	#DF = DF.withColumn('cleaned_title_2',ltrim(rtrim(lower(regexp_replace(DF.cleaned_title, '[^\sa-zA-Z0-9]','')))))
 	#DF = DF.withColumn('cleaned_body_2',ltrim(rtrim(lower(regexp_replace(DF.cleaned_title, '[^\sa-zA-Z0-9]','')))))
-	print "################ : New column the concat of title & body"
-	DF=DF.withColumn('text_all', concat(col("cleaned_title"), lit(" "), col("cleaned_body")))
-	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '[^\sa-zA-Z(),!?\']',' ')))
-	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\'s',' \'s')))
-	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\'ve',' \'ve')))
-	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, 'n\'t',' n\'t')))
-	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\'re',' \'re')))
-	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\'d',' \'d')))
-	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\'ll',' \'ll')))
-	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, ',',' , ')))
-	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '!',' ! ')))
-	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\(',' \( ')))
-	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\)',' \) ')))
-	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\?',' \?')))
-	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\s{2,}',' ')))
-	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '','')))
+	#print "################ : New column the concat of title & body"
+	DF=DF.withColumn('text_all', concat(col("cleaned_title"), lit(" "),col("cleaned_title"), lit(" "),col("cleaned_title"), lit(" ")))
+	DF=DF.withColumn('text_all', concat(col("text_all"), lit(" "),col("cleaned_title"), lit(" "),col("cleaned_title"), lit(" ")))
+	DF=DF.withColumn('text_all', concat(col("text_all"), lit(" "),col("cleaned_title"), lit(" "),col("cleaned_title"), lit(" "),col("cleaned_body")))
+
+	#DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '[^\sa-zA-Z(),!?\']',' ')))
+	#DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\'s',' \'s')))
+	#DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\'ve',' \'ve')))
+	#DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, 'n\'t',' n\'t')))
+	#DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\'re',' \'re')))
+	#DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\'d',' \'d')))
+	#DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\'ll',' \'ll')))
+	#DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, ',',' , ')))
+	#DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '!',' ! ')))
+	#DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\(',' \( ')))
+	#DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\)',' \) ')))
+	#DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\?',' \?')))
+	#DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\s{2,}',' ')))
+	#DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '','')))
 	DF=DF.withColumn('text_all', ltrim(rtrim(lower(DF.text_all))))
 	# Drop temporary columns
 	columns_to_drop = ['title','body','cleaned_body','cleaned_title']
@@ -186,21 +189,22 @@ def data_quality(DF):
 
 # DQ Function on the list of words
 def data_quality_words(df):
-	remover = StopWordsRemover(inputCol="words", outputCol="words_stop")
-	df = remover.transform(df)
+#	remover = StopWordsRemover(inputCol="words", outputCol="words_all")
+#	df = remover.transform(df)
+	df = df.withColumn("words_all", df.words)
 
-	stemmer = SnowballStemmer("english")
-	stemmer_udf = udf(lambda tokens: [stemmer.stem(token) for token in tokens], ArrayType(StringType()))
-	df = df.withColumn("words_stem", stemmer_udf("words_stop"))
+#	stemmer = SnowballStemmer("english")
+#	stemmer_udf = udf(lambda tokens: [stemmer.stem(token) for token in tokens], ArrayType(StringType()))
+#	df = df.withColumn("words_stem", stemmer_udf("words_stop"))
 
-	ngram2 = NGram(n=2, inputCol="words_stem", outputCol="words_all")
-	df = ngram2.transform(df)
+#	ngram2 = NGram(n=2, inputCol="words_stem", outputCol="words_all")
+#	df = ngram2.transform(df)
 #	ngram3 = NGram(n=3, inputCol="words_ngram2", outputCol="words_all")
 #	df = ngram3.transform(df)
 
 	# Drop temporary columns
 	#columns_to_drop = ['text_all','words','words_stop','words_stem','words_ngram2']
-	columns_to_drop = ['text_all','words','words_stop','words_stem']
+	columns_to_drop = ['text_all','words']
 	FinalcleanDF = df.drop(*columns_to_drop)
 	return FinalcleanDF
 
@@ -276,8 +280,8 @@ print "##### (Valid) ########## TF_IDF vector : done."
 # Save prepared Data for ML next step
 #########################################################
 print "################ Saving Parquet Files."
-fileName_train=HDFS_base_path+"/train_features_080.parquet"
-fileName_valid=HDFS_base_path+"/valid_features_080.parquet"
+fileName_train=HDFS_base_path+"/train_features_500.parquet"
+fileName_valid=HDFS_base_path+"/valid_features_500.parquet"
 dataDF.write.format("parquet").mode("overwrite").save("hdfs://"+fileName_train)
 print "################ dataDF saved."
 validDF.write.format("parquet").mode("overwrite").save("hdfs://"+fileName_valid)

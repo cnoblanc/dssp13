@@ -2,19 +2,23 @@ from pyspark.sql import SparkSession
 from pyspark.sql import Row
 from pyspark.sql.types import StringType
 from pyspark.sql.types import ArrayType
-from pyspark.sql.functions import udf,concat,col,lit
+from pyspark.sql.functions import udf,concat,col,lit,lower,regexp_replace,ltrim,rtrim
 from functools import partial
 import datetime
 import sys,re, string
 import nltk
 from nltk.corpus import stopwords
-from nltk.stem.porter import PorterStemmer
-#from nltk.stem.porter import SnowballStemmer
+#from nltk.stem.porter import PorterStemmer
+from nltk.stem import WordNetLemmatizer
+from nltk.stem.snowball import SnowballStemmer
+
 from bs4 import BeautifulSoup
 
 from pyspark import keyword_only
 from pyspark.ml import Transformer
 from pyspark.ml.param.shared import HasInputCol, HasOutputCol
+
+from pyspark.ml.feature import HashingTF, IDF, Tokenizer, StopWordsRemover
 
 ############################
 # General Parameters #######
@@ -24,54 +28,6 @@ appName='christophe'
 RowCountToShow=5
 #train_filename='/dssp/datacamp/little_train.tsv'
 train_filename='/dssp/datacamp/train.tsv'
-
-# Christophe: This function was post in the Slack during the DeepLearning weekend.
-def clean_str(str_dirty):
-	# str_dirty will be analyzed characher by character or using regular expressions
-	str_dirty=str_dirty.strip() # Remove spaces before and after
-	stop_words = stopwords.words('english')
-	exclude = set(string.punctuation)
-	exclude_number = '0123456789'
-	exclude_other = ''
-	
-	str_dirty = ''.join(ch for ch in str_dirty if ch not in exclude)
-	str_dirty = ''.join(ch for ch in str_dirty if ch not in exclude_number)
-	str_dirty = ''.join(ch for ch in str_dirty if ch not in exclude_other)
-	str_dirty = re.sub(r"[^A-Za-z0-9(),!?\'\`]", " ", str_dirty)
-	str_dirty = re.sub(r"\'s", " \'s", str_dirty)
-	str_dirty = re.sub(r"\'ve", " \'ve", str_dirty)
-	str_dirty = re.sub(r"n\'t", " n\'t", str_dirty)
-	str_dirty = re.sub(r"\'re", " \'re", str_dirty)
-	str_dirty = re.sub(r"\'d", " \'d", str_dirty)
-	str_dirty = re.sub(r"\'ll", " \'ll", str_dirty)
-	str_dirty = re.sub(r",", " , ", str_dirty)
-	str_dirty = re.sub(r"!", " ! ", str_dirty)
-	str_dirty = re.sub(r"\(", " \( ", str_dirty)
-	str_dirty = re.sub(r"\)", " \) ", str_dirty)
-	str_dirty = re.sub(r"\?", " \? ", str_dirty)
-	str_dirty = re.sub(r"\s{2,}", " ", str_dirty)
-	str_clean=str_dirty
-	return str_clean.strip()
-
-def remove_stop_words(word_dirty):
-	# Check if a specific word (parameter) should be excluded or not
-	stop_words = stopwords.words('english')
-	other_specific_exclude=['']
-
-	str_clean=word_dirty.lower().strip() # Remove spaces before and after
-	if str_clean in stop_words:
-		str_clean=''
-	if str_clean in other_specific_exclude:
-		str_clean=''
-	return str_clean
-
-def stemmer_(list_of_words):
-	# version 1 : 
-	stemmer = PorterStemmer()
-	# Version 2 : SnowballStemmer (The 'english' stemmer is better than the original 'porter' stemmer)
-	# stemmer = SnowballStemmer("english", ignore_stopwords=True)
-	doc = [stemmer.stem(w) for w in list_of_words]
-	return(doc)
 
 # Remove HTML Tags from a column
 class BsTextExtractor(Transformer, HasInputCol, HasOutputCol):
@@ -93,26 +49,28 @@ class BsTextExtractor(Transformer, HasInputCol, HasOutputCol):
         in_col = dataset[self.getInputCol()]
         return dataset.withColumn(out_col, udf(f, t)(in_col))
 
-
-
+####################################
+################ It start Here     #
+####################################
 startTime=datetime.datetime.now()
 #start "spark session" 
 spark = SparkSession.builder.appName(appName).getOrCreate()
 sc = spark.sparkContext
 #A.load tsv into a data frame:
 #1.read the raw text and split it to fields (the text file does not contain a header)
-dataRDD = sc.textFile(train_filename).map(lambda x:x.strip().split('\t'))
+dataRDD = sc.textFile(train_filename).sample(False,0.2,42).map(lambda x:x.strip().split('\t'))
+# .sample(False,0.5,42)
+
 #2. convert the rdd to a DataFrame and names to columns 
 print "################ Start loading Train data"
 dataDF=dataRDD.toDF(['id','title','body','tags'])
 # print one line of the dataframe
 print "################ DATA to DF"
 print dataDF.show(RowCountToShow)
-print "Source Data (Train&Test) Row Count=",dataDF.count()
-#print dataDF.head(RowCountToShow)
+#print "Source Data (Train&Test) Row Count=",dataDF.count()
+#print dataDF.show(RowCountToShow)
 print "################ columns :"
 print dataDF.printSchema()
-
 
 #########################################################
 # PART I : Manage the Tags (only applyied in Train dataset)
@@ -130,13 +88,10 @@ split_string_udf = udf(lambda x:x.split(','),custom_udf_schema)
 dataDF = dataDF.withColumn('array_tags',split_string_udf(dataDF.tags))
 print "################ UDF EXAMPLE : split string of tags into an array"
 #print dataDF.show(RowCountToShow)
-#print dataDF.head(RowCountToShow)
 #print "################"
 
 #C. Drop columns
 dataDF = dataDF.drop(dataDF.tags)
-#print "DROP COLUMN EXAMPLE"
-#print dataDF.head(RowCountToShow)
 #print "################"
 
 # D. The next example will create 4 columns by transforming the DF
@@ -170,20 +125,18 @@ mapFunction = partial(array_string_transform,tags=possible_tags)
 dataDF = dataDF.rdd.map(mapFunction).toDF()
 print "############### : FROM DF TO RDD AND BACK : 4 new columns appear"
 #print dataDF.show(RowCountToShow)
-#print dataDF.head(RowCountToShow)
 #print "###############"
-# print dataDF.show()
 
 #########################################################
 # PART II
 # Features EXAMPLES
-# TODO : create a new col "text" that contains only the title,
+# TODO : DONE. create a new col "text" that contains only the title,
 #        and use it to extract words and calculate the TF & TF_IDF
 #		 -> impact on the next step ML (changing the column name of the splitted words)
-# TODO : using Stemming
-# TODO : remove HTML tags from the "body"
-# TODO : not only use "title" , but also use "body" and "title".
-# TODO : exclude ponctuation and unwanted caracters, exclude stopwords
+# TODO : DONE. using Stemming
+# TODO : DONE. remove HTML tags from the "body"
+# TODO : DONE. not only use "title" , but also use "body" and "title".
+# TODO : DONE. exclude ponctuation and unwanted caracters, exclude stopwords
 # TODO : replace lemma (synomymes, nettoyage des conjugaisons, pluriels)
 # TODO : feature selection (enlever les mots les moins utiles)
 # TODO : Using n-grams (not only 1-word, but sequence of words) : 2-grams, 3-grams, 4-grams.
@@ -195,38 +148,89 @@ print "############### : FROM DF TO RDD AND BACK : 4 new columns appear"
 #
 #########################################################
 
-# remove HTML Tags in text 
+# DQ Function on the Text fields (entire document columns)
 def data_quality(DF):
 	print "################ : New column with Cleaned data in Title & body"
 	bs_title_extractor = BsTextExtractor(inputCol="title", outputCol="cleaned_title")
 	DF = bs_title_extractor.transform(DF)
 	bs_body_extractor = BsTextExtractor(inputCol="body", outputCol="cleaned_body")
-	cleanDF = bs_body_extractor.transform(DF)
+	DF = bs_body_extractor.transform(DF)	
+	print "################ : trim & lower on body & title"
+	#DF = DF.withColumn('cleaned_title_2',ltrim(rtrim(lower(regexp_replace(DF.cleaned_title, '[^\sa-zA-Z0-9]','')))))
+	#DF = DF.withColumn('cleaned_body_2',ltrim(rtrim(lower(regexp_replace(DF.cleaned_title, '[^\sa-zA-Z0-9]','')))))
 	print "################ : New column the concat of title & body"
-	cleanDF=cleanDF.withColumn('text_all', concat(col("cleaned_title"), lit(" "), col("cleaned_body")))
-	print cleanDF.show(RowCountToShow)
-	return cleanDF
+	DF=DF.withColumn('text_all', concat(col("cleaned_title"), lit(" "), col("cleaned_body")))
+	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '[^\sa-zA-Z(),!?\']',' ')))
+	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\'s',' \'s')))
+	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\'ve',' \'ve')))
+	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, 'n\'t',' n\'t')))
+	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\'re',' \'re')))
+	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\'d',' \'d')))
+	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\'ll',' \'ll')))
+	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, ',',' , ')))
+	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '!',' ! ')))
+	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\(',' \( ')))
+	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\)',' \) ')))
+	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\?',' \?')))
+	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '\s{2,}',' ')))
+	DF=DF.withColumn('text_all', lower(regexp_replace(DF.text_all, '','')))
+	DF=DF.withColumn('text_all', ltrim(rtrim(lower(DF.text_all))))
+	# Drop temporary columns
+	columns_to_drop = ['title','body','cleaned_body','cleaned_title']
+	FinalcleanDF = DF.drop(*columns_to_drop)
+	return FinalcleanDF
 
-dataDF=data_quality(dataDF)
+# DQ Function on the list of words
+def data_quality_words(df):
+	remover = StopWordsRemover(inputCol="words", outputCol="words_stop")
+	df = remover.transform(df)
+
+	stemmer = SnowballStemmer("english")
+	stemmer_udf = udf(lambda tokens: [stemmer.stem(token) for token in tokens], ArrayType(StringType()))
+	df = df.withColumn("words_all", stemmer_udf("words_stop"))
+
+	# LEMMA
+	#def lemma(x):
+	#    nltk.download('wordnet')
+   	# 	lemmatizer = WordNetLemmatizer()
+   	# 	return lemmatizer.lemmatize(x)
+	#df = df.map(lemma)
+
+	# Drop temporary columns
+	columns_to_drop = ['text_all','words','words_stop']
+	FinalcleanDF = df.drop(*columns_to_drop)
+	return FinalcleanDF
 
 #########################################################
 # Classic TF-IDF (with hashing)
-from pyspark.ml.feature import HashingTF, IDF, Tokenizer
-# 1. split text field into words (Tokenize)
-tokenizer = Tokenizer(inputCol="text_all", outputCol="words_all")
-dataDF = tokenizer.transform(dataDF)
-print "################ : New column with tokenized Title"
-#print dataDF.show(RowCountToShow)
-#print dataDF.head(RowCountToShow)
-#print "################"	
+#########################################################
+# Work on columns texts to create 'text_all'.
+dataDF=data_quality(dataDF)
 
+# 1. split text field into words (Tokenize)
+from pyspark.ml.feature import HashingTF, IDF, Tokenizer
+tokenizer = Tokenizer(inputCol="text_all", outputCol="words")
+dataDF = tokenizer.transform(dataDF)
+print "################ : New column with tokenized words"
+
+# DataQuality on the list of words (StopWordsRemover & Stemmer) to create 'words_all'
+dataDF=data_quality_words(dataDF)
+print "################ : New column with clean words"
+
+#cv = CountVectorizer(inputCol="words_all", outputCol="vectors")
+#model = cv.fit(df)
+print "################ columns :"
+print dataDF.printSchema()
 # 2. compute term frequencies
-hashingTF = HashingTF(inputCol="words_all", outputCol="tf_all")
+hashingTF = HashingTF(inputCol="words_all", outputCol="tf_all",numFeatures=1000)
+#,numFeatures=1000
 dataDF = hashingTF.transform(dataDF)
-print "################ TERM frequencies:"
+print "################ TERM frequencies (TF): Done"
 #print dataDF.show(RowCountToShow)
-#print dataDF.head(RowCountToShow)
 #print "################"
+
+#Convert to RDD and back to DF
+#dataDF = dataDF.rdd.toDF()
 
 #3. IDF computation
 idf = IDF(inputCol="tf_all", outputCol="tf_idf_all")
@@ -234,7 +238,7 @@ print "################ TF_IDF vector: Start fit()"
 idfModel = idf.fit(dataDF) #model that contains "dictionary" and IDF values
 print "################ TF_IDF vector: Start transform()"
 dataDF = idfModel.transform(dataDF)
-print "################ TF_IDF vector:"
+print "################ TF_IDF vector: Done"
 print dataDF.show(RowCountToShow)
 #print dataDF.head(RowCountToShow)
 print "################"
@@ -252,6 +256,9 @@ validDF=data_quality(validDF)
 #2.transform test data
 validDF = tokenizer.transform(validDF)
 print "##### (Valid) ########## tokenized Title : done."
+# DataQuality on the list of words (StopWordsRemover & Stemmer) to create 'words_all'
+validDF=data_quality_words(validDF)
+print "################ : New column with clean words"
 validDF = hashingTF.transform(validDF)
 print "##### (Valid) ########## Term Frequencies : done."
 validDF = idfModel.transform(validDF)
@@ -260,11 +267,13 @@ print "##### (Valid) ########## TF_IDF vector : done."
 #########################################################
 # Save prepared Data for ML next step
 #########################################################
+print "################ Saving Parquet Files."
 fileName_train=HDFS_base_path+"/train_features_010.parquet"
 fileName_valid=HDFS_base_path+"/valid_features_010.parquet"
 dataDF.write.format("parquet").mode("overwrite").save("hdfs://"+fileName_train)
+print "################ dataDF saved."
 validDF.write.format("parquet").mode("overwrite").save("hdfs://"+fileName_valid)
-
+print "################ validDF saved."
 print "---------------------- SUMMARY :"
 print "Source Data (Train&Test) Row Count=",dataDF.count()
 print dataDF.show(RowCountToShow)

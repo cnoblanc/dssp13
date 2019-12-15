@@ -25,7 +25,7 @@ dataDF=dataRDD.toDF(['id','title','body','tags'])
 # print one line of the dataframe
 print "################ DATA to DF"
 print dataDF.show(RowCountToShow)
-print "Source Data (Train&Test) Row Count=",dataDF.shape[0]
+print "Source Data (Train&Test) Row Count=",dataDF.count()
 #print dataDF.head(RowCountToShow)
 print "################"
 
@@ -131,7 +131,7 @@ validDF = hashingTF.transform(validDF)
 print "##### (Valid) ########## Term Frequencies : done."
 validDF = idfModel.transform(validDF)
 print "##### (Valid) ########## TF_IDF vector : done."
-print "Validation Row Count=",validDF.shape[0]
+print "Validation Row Count=",validDF.count()
 
 #########################################################
 # PART III

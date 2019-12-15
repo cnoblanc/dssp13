@@ -5,12 +5,10 @@ from pyspark.sql.types import ArrayType
 from pyspark.sql.functions import udf
 from pyspark.sql.functions import col
 from pyspark.ml.feature import OneHotEncoder, StringIndexer,IndexToString, VectorAssembler
-from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
-from pyspark.ml.evaluation import MulticlassClassificationEvaluator
-
 from functools import partial
 import datetime
 import re
+
 ############################
 # General Parameters #######
 ############################
@@ -27,8 +25,8 @@ sc = spark.sparkContext
 # Load Parquet files
 #########################################################
 from pyspark.sql import SQLContext
-fileName_train=HDFS_base_path+"/train_features_210.parquet"
-fileName_valid=HDFS_base_path+"/valid_features_210.parquet"
+fileName_train=HDFS_base_path+"/train_features_010.parquet"
+fileName_valid=HDFS_base_path+"/valid_features_010.parquet"
 sqlContext = SQLContext(sc)
 print "################ Start loading Train DataFrame"
 dataDF = sqlContext.read.parquet("hdfs://" + fileName_train)
@@ -53,59 +51,40 @@ tfidf_col_name="tf_idf_all"
 col_name="label"
 
 # Create the consolidated Target : 
-label_stringIndexer = StringIndexer(inputCol = "tags_target", outputCol = col_name).fit(dataDF)
+label_stringIndexer = StringIndexer(inputCol = "tags_target", outputCol = "label").fit(dataDF)
 dataDF = label_stringIndexer.transform(dataDF)
 #labelReverse = IndexToString(inputCol = "label", outputCol="originalTarget",labels=label_stringIndexer.labels)
 #dataDF=labelReverse.transform(dataDF)
 
-print "############### Select only needed columns in dataDF for multi-Classes Tags"
-dataDF=dataDF.select('id',tfidf_col_name,'array_tags','tags_target',col_name)
+print "############### Created Target of multi-Classes Tags"
 #print dataDF.show(RowCountToShow)
 #print label_stringIndexer.labels
+
+print "############### Select only needed columns in dataDF for multi-Classes Tags"
+dataDF=dataDF.select('id',tfidf_col_name,'array_tags','tags_target',col_name)
 
 #B. Train and Evaluate Features with simple logistic regression
 #1. Simple evaluation methodology : train and test split
 (train,test)=dataDF.rdd.randomSplit([0.8,0.2],seed=42)
 
 #2.initialize model parameters ...we use a simple model here
-from pyspark.ml.classification import LogisticRegression
-#from pyspark.ml.classification import LogisticRegressionWithSGD
+from pyspark.ml.classification import RandomForestClassifier
 
 #3. Fit the model
-print "################ Define the model : label"
+print "################ Start fitting the model : tags_target"
 max_iterations=10
-reg=LogisticRegression(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred",rawPredictionCol=col_name+"_pred_raw"
-		,maxIter=max_iterations, elasticNetParam=0)
+#reg=LogisticRegression(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred",rawPredictionCol=col_name+"_pred_raw"
+#		,maxIter=max_iterations)
 #,regParam=0.3, elasticNetParam=0
-
-# Create ParamGrid for Cross Validation
-paramGrid = (ParamGridBuilder()
-#             .addGrid(reg.regParam, [0.2, 0.3, 0.4,0.5]) # regularization parameter
-             .addGrid(reg.regParam, [0,0.001,0.005,0.01,0.015]) # regularization parameter
- #            .addGrid(reg.elasticNetParam, [0.0, 0.2, 0.4, 0.6, 0.8, 1]) # Elastic Net Parameter (Ridge = 0)
-#            .addGrid(model.maxIter, [10, 20, 50]) #Number of iterations
-#            .addGrid(idf.numFeatures, [10, 100, 1000]) # Number of features
-             .build())
-# Define the evaluator
-evaluator = MulticlassClassificationEvaluator(labelCol=col_name,predictionCol=col_name+"_pred",metricName="f1")
-
-# Create 5-fold CrossValidator
-cv = CrossValidator(estimator=reg, \
-                    estimatorParamMaps=paramGrid, \
-                    evaluator=evaluator, \
-                    numFolds=5)
-print "################ Start Cross Validation for the model"
-model = cv.fit(train.toDF())
-print "################  Cross Validation END"
-print "################  Best Model Hyper parameters :"
-bestModel = model.bestModel
-print 'Best Param (regParam): ', bestModel._java_obj.getRegParam()
-#print 'Best Param (MaxIter): ', bestModel._java_obj.getMaxIter()
-print 'Best Param (elasticNetParam): ', bestModel._java_obj.getElasticNetParam()
+rf = RandomForestClassifier(featuresCol=tfidf_col_name,labelCol=col_name,predictionCol=col_name+"_pred" \
+                            ,numTrees = 100 \
+                            ,maxDepth = 4 \
+                            ,maxBins = 32)
+model = rf.fit(train.toDF())
+print "################  fitting the model END"
 
 #4.Apply model to test data
 labelReversePred = IndexToString(inputCol = col_name+"_pred", outputCol="encoded_pred",labels=label_stringIndexer.labels)
-
 def apply_model(DF):
 	print "######## Model.Transform() to get predictions"
 	result=model.transform(DF)
@@ -113,14 +92,25 @@ def apply_model(DF):
 	result=labelReversePred.transform(result)
 	return result
 
-print "################ Apply model to test : starting transform()"
+print "################ Apply model to train : starting transform()"
+result_train=apply_model(train.toDF())
+print "################ Apply Model for Train : Done"
 result_test=apply_model(test.toDF())
 print "################ Apply Model for Test : Done"
+print result_test.show(RowCountToShow)
 
 #5. Evaluation of results
-print "################ RESULT of (evaluator on Test) classifier for label"
-eval_test=evaluator.evaluate(result_test)
-print eval_test
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
+metricName="f1"
+col_name="label"
+#evaluator = MulticlassClassificationEvaluator(labelCol=col_name,predictionCol=col_name+"_pred",metricName=metricName,)
+
+print "################ RESULT of (evaluator on Train) classifier for label"
+#eval_train=evaluator.evaluate(result_train)
+#print eval_train
+print "################ RESULT for : Test"
+#eval_test=evaluator.evaluate(result_test)
+#print eval_test
 print "################"
 
 
@@ -145,6 +135,7 @@ def predictions(row):
 	newRow = newRow(*ret.values())
 	return newRow
 print "################ Concatenation of Predicted Labels"
+result_train_predlabels=result_train.rdd.map(predictions)
 result_test_predlabels=result_test.rdd.map(predictions)
 print "################ Concatenation of Predicted Labels : Done."
 
@@ -163,14 +154,53 @@ def F1_multilabel(x):
 	 return 2*predicted_correct/float(len(correct)+len(predicted))
 	 
 print "################ F1 Score "
+F1_Train_score=result_train_predlabels.map(F1_multilabel).mean()
+print "F1_Train_score = ",F1_Train_score
 F1_Test_score=result_test_predlabels.map(F1_multilabel).mean()
 print "F1_Test_score = ",F1_Test_score
 print "################"
 
+#########################################################
+# PART IV
+# Submit on Validation data
+#########################################################
+#3.Apply model to test data
+def predictions_valid(row):
+	data = row.asDict()
+	encoded_pred=data['encoded_pred']
+	predicted=[]
 
+	# Decode the encoded prediction
+	for i, char in enumerate(encoded_pred):
+		if char=='1':
+			# Add the associated TAG in the predicted array
+			predicted.append(possible_tags[i])
+
+	ret={'id':data['id'],'predicted':predicted}
+	newRow = Row(*ret.keys()) 
+	newRow = newRow(*ret.values())
+	return newRow 
+
+print "############### Select only needed columns in dataDF for multi-Classes Tags"
+validDF=validDF.select('id',tfidf_col_name)
+
+result_valid=apply_model(validDF)
+#result_valid=Model.transform(validDF)
+print "##### (Valid) ########## Apply Model : done."
+result_valid=result_valid.rdd.map(predictions_valid).toDF()
+print "##### (Valid) ########## Concatenation of Predicted Labels : done."
+
+#4.FINAL EVALUATION on "unknown data"
+from dssp_evaluation import tools
+#we need a data frame with the predictions and the ids
+print "################ Scoring on Valid dataset"
+DSSP_score=tools.evaluateDF(sc,result_valid,prediction_col='predicted',id_col='id')
 print "---------------------- SUMMARY :"
-print "eval_test  (MulticlassClassificationEvaluator F1) =", eval_test
+#print "eval_train (MulticlassClassificationEvaluator F1) =", eval_train
+#print "eval_test  (MulticlassClassificationEvaluator F1) =", eval_test
+print "F1_Train_score         =", F1_Train_score
 print "F1 Test Score          =", F1_Test_score
+print "DSSP_score (valid)     =", DSSP_score
 print "################ : END."
 endTime=datetime.datetime.now()
 duration = endTime - startTime 
