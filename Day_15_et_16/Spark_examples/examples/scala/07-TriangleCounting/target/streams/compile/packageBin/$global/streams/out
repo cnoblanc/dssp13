@@ -1,0 +1,7 @@
+[0m[[0minfo[0m] [0mPackaging /data/home/a.papadopoulos/sparklab/examples/spark/07-TriangleCounting/target/scala-2.10/trianglecounting_2.10-1.0.jar ...[0m
+[0m[[0mdebug[0m] [0mInput file mappings:[0m
+[0m[[0mdebug[0m] [0m	TriangleCounting.class[0m
+[0m[[0mdebug[0m] [0m	  /data/home/a.papadopoulos/sparklab/examples/spark/07-TriangleCounting/target/scala-2.10/classes/TriangleCounting.class[0m
+[0m[[0mdebug[0m] [0m	TriangleCounting$.class[0m
+[0m[[0mdebug[0m] [0m	  /data/home/a.papadopoulos/sparklab/examples/spark/07-TriangleCounting/target/scala-2.10/classes/TriangleCounting$.class[0m
+[0m[[0minfo[0m] [0mDone packaging.[0m

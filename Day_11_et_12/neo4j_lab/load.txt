@@ -1,0 +1,35 @@
+USING PERIODIC COMMIT 10000
+LOAD CSV FROM 'file:///C:/Users/giatsidi/Desktop/classes/neo4j/dssp_2016_spring/sample_movies.tsv' AS line
+FIELDTERMINATOR '\t'
+CREATE (:Movie {title:line[0], year:toInt(line[1]) ,
+numOfVotes:toInt(line[2]) ,rating:toFloat(line[3]), 
+imdbTitle:line[5]
+})
+
+
+CREATE INDEX ON :Movie(imdbTitle)
+CREATE INDEX ON :Person(name)
+CREATE INDEX ON :Director(name)
+
+USING PERIODIC COMMIT 10000
+LOAD CSV FROM 'file:///C:/Users/giatsidi/Desktop/classes/neo4j/dssp_2016_spring/sample_directed.tsv' AS line
+FIELDTERMINATOR '\t'
+MERGE (m:Movie {imdbTitle:line[1]})
+MERGE (drc:Person:Director {name:line[0]})
+CREATE (drc)-[:Directed]->(m)
+
+
+
+CREATE INDEX ON :Actor(name)
+
+USING PERIODIC COMMIT 10000
+LOAD CSV FROM 'file:///C:/Users/giatsidi/Desktop/classes/neo4j/dssp_2016_spring/sample_inmovie.tsv' AS line
+FIELDTERMINATOR '\t'
+MERGE (m:Movie {imdbTitle:line[1]})
+MERGE (drc:Person {name:line[0]})
+ON MATCH SET  drc:Actor
+ON CREATE SET drc:Actor
+CREATE (drc)-[:Acted]->(m)
+
+
+match (rob:Person) where rob.name='Reiner, Rob' return rob

@@ -1,0 +1,13 @@
+[0m[[0minfo[0m] [0mPackaging /data/home/a.papadopoulos/sparklab/examples/spark/02-LineCount/target/scala-2.10/linecount_2.10-1.0.jar ...[0m
+[0m[[0mdebug[0m] [0mInput file mappings:[0m
+[0m[[0mdebug[0m] [0m	LineCount$$anonfun$3.class[0m
+[0m[[0mdebug[0m] [0m	  /data/home/a.papadopoulos/sparklab/examples/spark/02-LineCount/target/scala-2.10/classes/LineCount$$anonfun$3.class[0m
+[0m[[0mdebug[0m] [0m	LineCount$$anonfun$2.class[0m
+[0m[[0mdebug[0m] [0m	  /data/home/a.papadopoulos/sparklab/examples/spark/02-LineCount/target/scala-2.10/classes/LineCount$$anonfun$2.class[0m
+[0m[[0mdebug[0m] [0m	LineCount$.class[0m
+[0m[[0mdebug[0m] [0m	  /data/home/a.papadopoulos/sparklab/examples/spark/02-LineCount/target/scala-2.10/classes/LineCount$.class[0m
+[0m[[0mdebug[0m] [0m	LineCount$$anonfun$1.class[0m
+[0m[[0mdebug[0m] [0m	  /data/home/a.papadopoulos/sparklab/examples/spark/02-LineCount/target/scala-2.10/classes/LineCount$$anonfun$1.class[0m
+[0m[[0mdebug[0m] [0m	LineCount.class[0m
+[0m[[0mdebug[0m] [0m	  /data/home/a.papadopoulos/sparklab/examples/spark/02-LineCount/target/scala-2.10/classes/LineCount.class[0m
+[0m[[0minfo[0m] [0mDone packaging.[0m

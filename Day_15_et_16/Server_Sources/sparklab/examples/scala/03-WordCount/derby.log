@@ -1,0 +1,13 @@
+----------------------------------------------------------------
+Fri Jun 23 22:41:48 CEST 2017:
+Booting Derby version The Apache Software Foundation - Apache Derby - 10.12.1.1 - (1704137): instance a816c00e-015c-d6b0-794b-00001660e4d0 
+on database directory /data/home/a.papadopoulos/sparklab/examples/spark/03-WordCount/metastore_db with class loader org.apache.spark.sql.hive.client.IsolatedClientLoader$$anon$1@71f0523a 
+Loaded from file:/opt/spark/spark-2.1.0-bin-hadoop2.7/jars/derby-10.12.1.1.jar
+java.vendor=Oracle Corporation
+java.runtime.version=1.7.0_67-b01
+user.dir=/data/home/a.papadopoulos/sparklab/examples/spark/03-WordCount
+os.name=Linux
+os.arch=amd64
+os.version=3.10.0-514.21.1.el7.x86_64
+derby.system.home=null
+Database Class Loader started - derby.database.classpath=''
