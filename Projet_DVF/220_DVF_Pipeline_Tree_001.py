@@ -13,19 +13,8 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 
 import dvfdata
-df=dvfdata.loadDVF_Maisons(departement='All',refresh_force=False,add_commune=False)
-
-def prepare_df(DF):
-    # Remove the extrem values
-    selected_df=df[(df["valeurfonc"]<1000000) & (df["sterr"]<10000) & (df["nbpprinc"]<=10 ) & (df["nbpprinc"]>0) & (df["sbati"]<=500)]
-    # Transform
-    cat_cols= selected_df.select_dtypes([np.object]).columns
-    X_drop = selected_df.drop(columns=cat_cols)
-    #X_drop = selected_df.drop(columns=['quartier','commune','departement','communelabel','codepostal'])
-    return(X_drop)
-
-df_prepared=prepare_df(df)
-
+df=dvfdata.loadDVF_Maisons(departement='All',refresh_force=False,add_commune=True)
+df_prepared=dvfdata.prepare_df(df,remove_categories=False)
 
 # Split Train / Test
 from sklearn.model_selection import cross_val_score
@@ -40,15 +29,11 @@ columns = X_df.columns
 
 # Get list of columns by type
 cat_cols= X_df.select_dtypes([np.object]).columns
-print(cat_cols)
-for col in cat_cols:
-    print("Column'",col,"' values (",len(X_df[col].unique()),") are:",X_df[col].unique()[:20])
 num_cols = X_df.select_dtypes([np.number]).columns
-print(num_cols)
+#dvfdata.print_cols_infos(X_df)
 
 # Split data Train & Test
 X_train, X_test, y_train, y_test = train_test_split(X_df, y, random_state=42)
-
 
 # Machine Learning Pipeline 
 from sklearn.pipeline import make_pipeline
@@ -57,17 +42,18 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OrdinalEncoder,OneHotEncoder, StandardScaler
 from sklearn.metrics import mean_squared_error,mean_absolute_error
 
+# Get the list of all possible categories from X_df
+categories = [X_df[column].unique() for column in X_df[cat_cols]]
 category_pipeline = make_pipeline(
-    SimpleImputer(strategy='constant', fill_value='Unknown'),
-    OrdinalEncoder(),
-    #OneHotEncoder,
+    SimpleImputer(strategy='constant', fill_value='missing')
+    ,OrdinalEncoder(categories=categories)
+    #,OneHotEncoder
 )
 
 numeric_pipeline=make_pipeline(
-    SimpleImputer(strategy='mean'),
-    #StandardScaler(),
+    SimpleImputer(strategy='mean')
+    #,StandardScaler()
 )
-#numeric_pipeline=SimpleImputer(strategy='mean')
 
 # convenience function for combining the outputs of multiple transformer objects
 # applied to column subsets of the original feature space
@@ -76,15 +62,15 @@ preprocessing = make_column_transformer(
      (numeric_pipeline, num_cols)
     ,(category_pipeline,cat_cols)
     ,n_jobs=-1
-    #,verbose=True
+    ,verbose=True
 )
 
 # Define the Model
 from sklearn.tree import DecisionTreeRegressor
 model_name="DecisionTree"
 folds_num=5
-tuned_parameters={"decisiontreeregressor__max_depth": [10,50,100,200]
-                  ,"decisiontreeregressor__min_samples_leaf":[5,10,20,50]}
+tuned_parameters={'decisiontreeregressor__max_depth': [10,50,100,200,300]
+                  ,'decisiontreeregressor__min_samples_leaf':[5,10,20,50]}
 
 reg=DecisionTreeRegressor()
 model = make_pipeline(preprocessing,reg)
@@ -94,8 +80,10 @@ model = make_pipeline(preprocessing,reg)
 # ------------------------------------------------------------------------
 # Search hyper-parameters 
 print(model.get_params())
-model_grid = GridSearchCV(model,tuned_parameters,scoring="neg_mean_absolute_error", n_jobs=-1, cv=5)
+model_grid = GridSearchCV(model,tuned_parameters,scoring="neg_mean_absolute_error"
+                          ,n_jobs=-1,cv=5,verbose=10)
 model_grid.fit(X_train, y_train)
+print("---------------------------------------")
 print("Best parameters set found on train set:")
 print(model_grid.best_params_)
 

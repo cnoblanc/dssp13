@@ -14,18 +14,7 @@ import matplotlib as mpl
 
 import dvfdata
 df=dvfdata.loadDVF_Maisons(departement='All',refresh_force=False,add_commune=True)
-
-def prepare_df(DF):
-    # Remove the extrem values
-    selected_df=df[(df["valeurfonc"]<1000000) & (df["sterr"]<10000) & (df["nbpprinc"]<=10 ) & (df["nbpprinc"]>0) & (df["sbati"]<=500)]
-    # Transform
-    cat_cols= selected_df.select_dtypes([np.object]).columns
-    X_drop = selected_df.drop(columns=cat_cols)
-    #X_drop = selected_df.drop(columns=['quartier','commune','departement','communelabel','codepostal'])
-    return(X_drop)
-
-df_prepared=prepare_df(df)
-
+df_prepared=dvfdata.prepare_df(df,remove_categories=True)
 
 # Split Train / Test
 from sklearn.model_selection import cross_val_score
@@ -40,11 +29,8 @@ columns = X_df.columns
 
 # Get list of columns by type
 cat_cols= X_df.select_dtypes([np.object]).columns
-print(cat_cols)
-for col in cat_cols:
-    print("Column'",col,"' values (",len(X_df[col].unique()),") are:",X_df[col].unique()[:20])
 num_cols = X_df.select_dtypes([np.number]).columns
-print(num_cols)
+#dvfdata.print_cols_infos(X_df)
 
 # Split data Train & Test
 X_train, X_test, y_train, y_test = train_test_split(X_df, y, random_state=42)

@@ -176,20 +176,59 @@ def loadDVF_Maisons(departement='All',refresh_force=False,add_commune=True,year=
         
     return dvf_all
 
-def category_features(df):
+def update_category_features(df):
     cat_cols= df.select_dtypes([np.object]).columns
     
+    # Convert 'SEG Croissance POP' to numeric
     if 'SEG Croissance POP' in cat_cols:
-        if df['SEG Croissance POP']== 'en déclin démographique':
-            df['Croissance POP']=-1.0
-        elif df['SEG Croissance POP']== 'en croissance démographique':
-            df['Croissance POP']=1.0
-        else:
-            df['Croissance POP']=0
-        df = df.drop('SEG Croissance POP')
-    
+        map_val={'en déclin démographique': -1.0, 'en croissance démographique': 1.0}
+        df['Croissance POP']=df['SEG Croissance POP'].map(map_val, na_action='ignore')
+        df = df.drop(columns=['SEG Croissance POP'])
+        
+    # Convert category values None & NaN
+    cat_cols= df.select_dtypes([np.object]).columns  
+    for column in cat_cols:
+        #print("->Column:",column)
+        #print("NoNe values:",df[column].isnull())
+        #df[df[column].isnull()][column]='None'
+        df[column].replace(to_replace=[None], value=np.nan, inplace=True)
+        values = df[column].unique()
+        for value in values:
+            if not isinstance(value, str) and np.isnan(value):
+                df[column]=df[column].fillna('missing')   
+
     return df
 
+def prepare_df(df, remove_categories=True):
+    # Remove/filter the extrem values
+    print("Prepare : filter extrem values")
+    selected_df=df[(df["valeurfonc"]<1000000) & (df["sterr"]<10000) & (df["nbpprinc"]<=10 ) & (df["nbpprinc"]>0) & (df["sbati"]<=500)]
+    print("Prepare : drop geo categories")
+    selected_df = selected_df.drop(columns=['quartier', 'commune', 'departement', 'communelabel', 'codepostal'])
+    print("Prepare : update categories")
+    selected_df=update_category_features(selected_df)
+    
+    if remove_categories == True :
+        # Transform
+        print("Prepare : transform categories")
+        cat_cols= selected_df.select_dtypes([np.object]).columns
+        selected_df = selected_df.drop(columns=cat_cols)
+        
+    return(selected_df)
+
+def print_cols_infos(df):
+    # Get list of columns by type
+    cat_cols= df.select_dtypes([np.object]).columns
+    num_cols = df.select_dtypes([np.number]).columns
+    print_col_vals=20
+    
+    print("-> Category Variables are :",cat_cols)
+    for col in cat_cols:
+        # print first 20 
+        print("#### Column'",col,"' values (",len(df[col].unique()),") are:",df[col].unique()[:print_col_vals])
+    print("-> Numeric Variables are :",num_cols)
+    
+    return None
 
 def get_predict_errors(y, y_pred):
     y_absolute_error=(y_pred-y).abs()
