@@ -15,7 +15,7 @@ import matplotlib as mpl
 # Get & Prepare DVF Data
 import dvfdata
 df=dvfdata.loadDVF_Maisons(departement='All',refresh_force=False,add_commune=True)
-df_prepared=dvfdata.prepare_df(df,remove_categories=True)
+df_prepared=dvfdata.prepare_df(df,remove_categories=False)
 
 # Split Train / Test
 from sklearn.model_selection import cross_val_score
@@ -38,16 +38,22 @@ X_train, X_test, y_train, y_test = train_test_split(X_df, y, random_state=42)
 from sklearn.pipeline import make_pipeline
 from sklearn.compose import make_column_transformer
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import OrdinalEncoder,OneHotEncoder
+from sklearn.preprocessing import OrdinalEncoder,OneHotEncoder,StandardScaler
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error,mean_absolute_error
+from sklearn.metrics import mean_squared_error,mean_absolute_error,mean_squared_log_error
 
+# Get the list of all possible categories from X_df
+categories = [X_df[column].unique() for column in X_df[cat_cols]]
 category_pipeline = make_pipeline(
-    SimpleImputer(strategy='constant', fill_value='Unknown'),
-    OrdinalEncoder(),
-    #OneHotEncoder,
+    SimpleImputer(strategy='constant', fill_value='Unknown')
+    ,OrdinalEncoder(categories=categories)
+    #,OneHotEncoder(categories=categories)
 )
-numeric_pipeline=SimpleImputer(strategy='mean')
+
+numeric_pipeline=make_pipeline(
+    SimpleImputer(strategy='mean')
+    ,StandardScaler()
+)
 
 # convenience function for combining the outputs of multiple transformer objects
 # applied to column subsets of the original feature space
@@ -76,14 +82,14 @@ y_test_predict=model.predict(X_test)
 # Prediction Score
 predict_score_mae=mean_absolute_error(y_test, y_test_predict)
 predict_score_rmse=math.sqrt(mean_squared_error(y_test, y_test_predict))
-#predict_score_msle=mean_squared_log_error(y_test, y_test_predict_non_negative)
+#predict_score_rmsle=math.sqrt(mean_squared_log_error(y_test, y_test_predict))
 
 mae,mae_std,mape, mape_std,mse,mse_std,rmse,rmse_std = dvfdata.get_predict_errors(y=y_test, y_pred=y_test_predict)
 print("------------ Scoring ------------------")
 print("Cross-Validation Accuracy: %0.2f (+/- %0.2f)" % (-cross_val_scores.mean(), cross_val_scores.std() * 2))
 print("Price diff error MAE: %0.2f (+/- %0.2f)" % (mae, mae_std * 2))
 print("Percent of Price error MAPE: %0.2f (+/- %0.2f)" % (mape, mape_std * 2))
-print("Price error RMSE: %0.2f (+/- %0.2f)" % (rmse, rmse * 2))
+print("Price error RMSE: %0.2f (+/- %0.2f)" % (rmse, rmse_std * 2))
 print("---------------------------------------")
 
 f, ax0 = plt.subplots(1, 1, sharey=True)
@@ -93,3 +99,24 @@ ax0.set_xlabel('True Target')
 ax0.set_title('LinearRegression, MAE=%.2f, RMSE=%.2f' % (predict_score_mae,predict_score_rmse))
 #ax0.set_xlim([0, 1000000])
 #ax0.set_ylim([0, 1000000])
+
+# -------------------
+# Features importance
+# -------------------
+print(model.get_params())
+features_selection=model['linearregression'].coef_
+columns = X_df.columns
+
+features_scores_ordering = np.argsort(features_selection)[::-1]
+features_importances = features_selection[features_scores_ordering]
+features_names = columns[features_scores_ordering]
+
+features_df=pd.DataFrame(data=features_importances,index=features_names).reset_index()
+features_df.columns = ['feature', 'score']
+
+plt.figure(figsize=(6, 3))
+top_x=10
+x = np.arange(top_x)
+plt.bar(x, features_df['score'][:top_x])
+plt.xticks(x, features_df['feature'][:top_x], rotation=90, fontsize=10);
+

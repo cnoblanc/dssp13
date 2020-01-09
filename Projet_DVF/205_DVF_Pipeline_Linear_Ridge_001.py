@@ -40,15 +40,21 @@ X_train, X_test, y_train, y_test = train_test_split(X_df, y, random_state=42)
 from sklearn.pipeline import make_pipeline
 from sklearn.compose import make_column_transformer
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import OrdinalEncoder,OneHotEncoder
+from sklearn.preprocessing import OrdinalEncoder,OneHotEncoder,StandardScaler
 from sklearn.metrics import mean_squared_error,mean_absolute_error
 
+# Get the list of all possible categories from X_df
+categories = [X_df[column].unique() for column in X_df[cat_cols]]
 category_pipeline = make_pipeline(
-    SimpleImputer(strategy='constant', fill_value='Unknown'),
-    OrdinalEncoder(),
-    #OneHotEncoder,
+    SimpleImputer(strategy='constant', fill_value='Unknown')
+    ,OrdinalEncoder(categories=categories)
+    #,OneHotEncoder(categories=categories)
 )
-numeric_pipeline=SimpleImputer(strategy='mean')
+
+numeric_pipeline=make_pipeline(
+    SimpleImputer(strategy='mean')
+    ,StandardScaler()
+)
 
 # convenience function for combining the outputs of multiple transformer objects
 # applied to column subsets of the original feature space
@@ -68,6 +74,9 @@ tuned_parameters={"ridge__alpha": [0.5,0.1,1e-2, 1e-3,1e-4, 1e-5,1e-6,1e-10]}
 reg=Ridge(fit_intercept=True,normalize=True, alpha=.5)
 model = make_pipeline(preprocessing,reg)
 
+# ------------------------------------------------------------------------
+# Search hyper-parameters 
+# ------------------------------------------------------------------------
 # Search hyper-parameters 
 folds_num=5
 print(model.get_params())
@@ -85,7 +94,9 @@ gridcv_columns_to_keep = [
 df_gridcv = df_gridcv[gridcv_columns_to_keep]
 print(df_gridcv.sort_values(by='mean_test_score', ascending=False))
 
-
+# ------------------------------------------------------------------------
+# compute Cross-validation scores to not over-fit on test set for hyper-parameter search
+# ------------------------------------------------------------------------
 # compute Cross-validation scores to not over-fit on test set for hyper-parameter search
 reg=Ridge(fit_intercept=True,normalize=True, alpha=.001)
 model = make_pipeline(preprocessing,reg)
@@ -109,7 +120,7 @@ print("------------ Scoring ------------------")
 print("Cross-Validation Accuracy: %0.2f (+/- %0.2f)" % (-cross_val_scores.mean(), cross_val_scores.std() * 2))
 print("Price diff error MAE: %0.2f (+/- %0.2f)" % (mae, mae_std * 2))
 print("Percent of Price error MAPE: %0.2f (+/- %0.2f)" % (mape, mape_std * 2))
-print("Price error RMSE: %0.2f (+/- %0.2f)" % (rmse, rmse * 2))
+print("Price error RMSE: %0.2f (+/- %0.2f)" % (rmse, rmse_std * 2))
 print("---------------------------------------")
 
 f, ax0 = plt.subplots(1, 1, sharey=True)
@@ -119,3 +130,23 @@ ax0.set_xlabel('True Target')
 ax0.set_title('%s, MAE=%.2f, RMSE=%.2f' % (model_name,predict_score_mae,predict_score_rmse))
 #ax0.set_xlim([0, 1000000])
 #ax0.set_ylim([0, 1000000])
+
+# -------------------
+# Features importance
+# -------------------
+print(model.get_params())
+features_selection=model['ridge'].coef_
+columns = X_df.columns
+
+features_scores_ordering = np.argsort(features_selection)[::-1]
+features_importances = features_selection[features_scores_ordering]
+features_names = columns[features_scores_ordering]
+
+features_df=pd.DataFrame(data=features_importances,index=features_names).reset_index()
+features_df.columns = ['feature', 'score']
+
+plt.figure(figsize=(6, 3))
+top_x=10
+x = np.arange(top_x)
+plt.bar(x, features_df['score'][:top_x])
+plt.xticks(x, features_df['feature'][:top_x], rotation=90, fontsize=10);

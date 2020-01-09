@@ -43,17 +43,18 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OrdinalEncoder,OneHotEncoder, StandardScaler
 from sklearn.metrics import mean_squared_error,mean_absolute_error
 
+# Get the list of all possible categories from X_df
+categories = [X_df[column].unique() for column in X_df[cat_cols]]
 category_pipeline = make_pipeline(
-    SimpleImputer(strategy='constant', fill_value='Unknown'),
-    OrdinalEncoder(),
-    #OneHotEncoder,
+    SimpleImputer(strategy='constant', fill_value='Unknown')
+    ,OrdinalEncoder(categories=categories)
+    #,OneHotEncoder(categories=categories)
 )
 
 numeric_pipeline=make_pipeline(
-    SimpleImputer(strategy='mean'),
-    StandardScaler(),
+    SimpleImputer(strategy='mean')
+    ,StandardScaler()
 )
-#numeric_pipeline=SimpleImputer(strategy='mean')
 
 # convenience function for combining the outputs of multiple transformer objects
 # applied to column subsets of the original feature space
@@ -74,6 +75,9 @@ tuned_parameters={"lasso__alpha": [100,10,1,0.5,0.1,1e-2, 1e-3,1e-4, 1e-5,1e-6,1
 reg=Lasso(fit_intercept=True,normalize=True)
 model = make_pipeline(preprocessing,reg)
 
+# ------------------------------------------------------------------------
+# Search hyper-parameters 
+# ------------------------------------------------------------------------
 # Search hyper-parameters 
 print(model.get_params())
 model_grid = LassoCV(model,tuned_parameters, n_jobs=-1, cv=5)
@@ -90,7 +94,9 @@ gridcv_columns_to_keep = [
 df_gridcv = df_gridcv[gridcv_columns_to_keep]
 print(df_gridcv.sort_values(by='mean_test_score', ascending=False))
 
-
+# ------------------------------------------------------------------------
+# compute Cross-validation scores to not over-fit on test set for hyper-parameter search
+# ------------------------------------------------------------------------
 # compute Cross-validation scores to not over-fit on test set for hyper-parameter search
 reg=LassoCV(fit_intercept=True,normalize=True,cv=folds_num,max_iter=100)
 model = make_pipeline(preprocessing,reg)
@@ -114,7 +120,7 @@ print("------------ Scoring ------------------")
 print("Cross-Validation Accuracy: %0.2f (+/- %0.2f)" % (-cross_val_scores.mean(), cross_val_scores.std() * 2))
 print("Price diff error MAE: %0.2f (+/- %0.2f)" % (mae, mae_std * 2))
 print("Percent of Price error MAPE: %0.2f (+/- %0.2f)" % (mape, mape_std * 2))
-print("Price error RMSE: %0.2f (+/- %0.2f)" % (rmse, rmse * 2))
+print("Price error RMSE: %0.2f (+/- %0.2f)" % (rmse, rmse_std * 2))
 print("---------------------------------------")
 #print ("LassoCV parameter value. alpha=",model.alpha_)
 
@@ -125,3 +131,23 @@ ax0.set_xlabel('True Target')
 ax0.set_title('%s, MAE=%.2f, RMSE=%.2f' % (model_name,predict_score_mae,predict_score_rmse))
 #ax0.set_xlim([0, 1000000])
 #ax0.set_ylim([0, 1000000])
+
+# -------------------
+# Features importance
+# -------------------
+print(model.get_params())
+features_selection=model['lasso'].coef_
+columns = X_df.columns
+
+features_scores_ordering = np.argsort(features_selection)[::-1]
+features_importances = features_selection[features_scores_ordering]
+features_names = columns[features_scores_ordering]
+
+features_df=pd.DataFrame(data=features_importances,index=features_names).reset_index()
+features_df.columns = ['feature', 'score']
+
+plt.figure(figsize=(6, 3))
+top_x=10
+x = np.arange(top_x)
+plt.bar(x, features_df['score'][:top_x])
+plt.xticks(x, features_df['feature'][:top_x], rotation=90, fontsize=10);
