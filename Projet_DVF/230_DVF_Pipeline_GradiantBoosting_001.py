@@ -6,6 +6,7 @@ Created on Sun Dec 22 17:01:11 2019
 @author: christophenoblanc
 """
 import math
+from time import time
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -17,7 +18,8 @@ import dvfdata
 dep_selection="All"
 model_name="GradiantBoosting"
 #dep_selection="77"
-df=dvfdata.loadDVF_Maisons(departement=dep_selection,refresh_force=False,add_commune=True)
+df=dvfdata.loadDVF_Maisons(departement=dep_selection,refresh_force=False
+                           ,add_commune=True,filterColsInsee=True)
 df_prepared=dvfdata.prepare_df(df,remove_categories=False)
 
 # Split Train / Test
@@ -73,28 +75,30 @@ preprocessing = make_column_transformer(
 from sklearn.experimental import enable_hist_gradient_boosting 
 from sklearn.ensemble import HistGradientBoostingRegressor
 folds_num=5
-tuned_parameters={ 'histgradientboostingregressor__min_samples_leaf':[100,200]
-                  ,'histgradientboostingregressor__max_iter':[300,500,800,1000,1500]
+tuned_parameters={ 'histgradientboostingregressor__min_samples_leaf':[50,100,200]
+                  ,'histgradientboostingregressor__max_iter':[300,500,800,1000]
                   }
 
 reg=HistGradientBoostingRegressor(
     loss='least_squares', learning_rate=0.1, max_depth=None
-        , scoring="neg_mean_absolute_error", validation_fraction=0.1
+        , scoring="neg_median_absolute_error", validation_fraction=0.1
         ,max_bins=255,n_iter_no_change=5, tol=50, verbose=0)
 model = make_pipeline(preprocessing,reg)
-#print(model.get_params())
 
 # ------------------------------------------------------------------------
 # Search hyper-parameters 
 # ------------------------------------------------------------------------
 # Search hyper-parameters 
 #print(model.get_params())
-model_grid = GridSearchCV(model,tuned_parameters,scoring="neg_mean_absolute_error"
+t0 = time()
+model_grid = GridSearchCV(model,tuned_parameters,scoring="neg_median_absolute_error"
                           ,n_jobs=-1,cv=5,verbose=20)
 model_grid.fit(X_train, y_train)
 print("---------------------------------------")
 print("Best parameters set found on train set:")
 print(model_grid.best_params_)
+print("---------------------------------------")
+print("Done All in : %0.3fs" % (time() - t0))
 print("---------------------------------------")
 
 # Save results in a DataFrame
@@ -113,24 +117,29 @@ df_gridcv.to_parquet("data_parquet/GridSearch_"+dep_selection+"_"+model_name+".p
 # ------------------------------------------------------------------------
 # compute Cross-validation scores to check overfitting on train set
 # ------------------------------------------------------------------------
+t0 = time()
 reg=HistGradientBoostingRegressor(
     loss='least_squares', learning_rate=0.1, max_depth=None
-        , scoring="neg_mean_absolute_error", validation_fraction=0.1
+        , scoring="neg_median_absolute_error", validation_fraction=0.1
         ,max_bins=255,n_iter_no_change=5, tol=1e-07, verbose=0
         ,min_samples_leaf=200
         ,max_iter=500)
 model = make_pipeline(preprocessing,reg)
 
 cross_val_scores=cross_val_score(model, X_train, y_train
-                        ,scoring="neg_mean_absolute_error"
+                        ,scoring="neg_median_absolute_error"
                         ,cv=folds_num,n_jobs=-1,verbose=20)
 # ------------------------------------------------------------------------
 # compute Test Scores
 # ------------------------------------------------------------------------
 # Apply the Model on full Train dataset
+t1_fit_start=time()
 model.fit(X_train, y_train)
+
 # Predict on Test dataset
+t0_predict = time()
 y_test_predict=model.predict(X_test)
+t0_predict_end = time()
 
 # Prediction Score
 predict_score_mae=mean_absolute_error(y_test, y_test_predict)
@@ -142,7 +151,12 @@ print("------------ Scoring ------------------")
 print("Cross-Validation Accuracy: %0.2f (+/- %0.2f)" % (-cross_val_scores.mean(), cross_val_scores.std() * 2))
 print("Price diff error MAE: %0.2f (+/- %0.2f)" % (mae, mae_std * 2))
 print("Percent of Price error MAPE: %0.2f (+/- %0.2f)" % (mape, mape_std * 2))
-print("Price error RMSE: %0.2f (+/- %0.2f)" % (rmse, rmse * 2))
+print("Price error RMSE: %0.2f (+/- %0.2f)" % (rmse, rmse_std * 2))
+print("---------------------------------------")
+print("Done All in : %0.3fs" % (time() - t0))
+print("Done CrossVal in : %0.3fs" % (t1_fit_start - t0))
+print("Done Fit in : %0.3fs" % (t0_predict - t1_fit_start))
+print("Done Predict in : %0.3fs" % (t0_predict_end - t0_predict))
 print("---------------------------------------")
 
 f, ax0 = plt.subplots(1, 1, sharey=True)
@@ -165,7 +179,8 @@ features_names = columns[features_scores_ordering]
 # create DataFrame with Features Names & Score
 features_df=pd.DataFrame(data=features_importances,index=features_names).reset_index()
 features_df.columns = ['feature', 'score']
-features_df.to_parquet("data_parquet/FeatureImportance_"+dep_selection+"_RandomForest.parquet", engine='fastparquet',compression='GZIP')
+features_df.to_parquet("data_parquet/FeatureImportance_"+dep_selection+"_"+model_name+".parquet"
+                       , engine='fastparquet',compression='GZIP')
 
 plt.figure(figsize=(10, 3))
 top_x=20
@@ -180,7 +195,7 @@ import dvf_learning_curve
 
 reg=HistGradientBoostingRegressor(
     loss='least_squares', learning_rate=0.1, max_depth=None
-        , scoring="neg_mean_absolute_error", validation_fraction=0.1
+        , scoring="neg_median_absolute_error", validation_fraction=0.1
         ,max_bins=255,n_iter_no_change=5, tol=1e-07, verbose=0
         ,min_samples_leaf=200
         ,max_iter=500)
@@ -189,7 +204,7 @@ model = make_pipeline(preprocessing,reg)
 title = "Learning Curves ("+model_name+")"
 dvf_learning_curve.plot_learning_curve(model, title, X_df, y
                     ,cv=5, n_jobs=-1,verbose=20
-                    ,scoring="neg_mean_absolute_error"
+                    ,scoring="neg_median_absolute_error"
                     ,train_sizes=np.linspace(.1, 1, 10))
 
 X_df.shape

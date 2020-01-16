@@ -6,6 +6,7 @@ Created on Sun Dec 22 17:01:11 2019
 @author: christophenoblanc
 """
 import math
+from time import time
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -17,7 +18,8 @@ import dvfdata
 dep_selection="All"
 model_name="RandomForest"
 #dep_selection="77"
-df=dvfdata.loadDVF_Maisons(departement=dep_selection,refresh_force=False,add_commune=False)
+df=dvfdata.loadDVF_Maisons(departement=dep_selection,refresh_force=False
+                           ,add_commune=True,filterColsInsee=True)
 df_prepared=dvfdata.prepare_df(df,remove_categories=False)
 
 # Split Train / Test
@@ -72,10 +74,11 @@ preprocessing = make_column_transformer(
 # Define the Model
 from sklearn.ensemble import RandomForestRegressor
 folds_num=5
-tuned_parameters={ 'randomforestregressor__min_samples_leaf':[10,20,50,100]
+tuned_parameters={ 'randomforestregressor__min_samples_leaf':[5,10,20,50,100]
                   ,'randomforestregressor__n_estimators':[50,100,200,300]}
 
-reg=RandomForestRegressor(max_features=None,max_depth=None,min_samples_split=2)
+reg=RandomForestRegressor(max_features=None,max_depth=None,min_samples_split=2
+                          ,random_state=42)
 model = make_pipeline(preprocessing,reg)
 
 # ------------------------------------------------------------------------
@@ -83,12 +86,15 @@ model = make_pipeline(preprocessing,reg)
 # ------------------------------------------------------------------------
 # Search hyper-parameters 
 #print(model.get_params())
-model_grid = GridSearchCV(model,tuned_parameters,scoring="neg_mean_absolute_error"
+t0 = time()
+model_grid = GridSearchCV(model,tuned_parameters,scoring="neg_median_absolute_error"
                           ,n_jobs=-1,cv=5,verbose=20)
 model_grid.fit(X_train, y_train)
 print("---------------------------------------")
 print("Best parameters set found on train set:")
 print(model_grid.best_params_)
+print("---------------------------------------")
+print("Done All in : %0.3fs" % (time() - t0))
 print("---------------------------------------")
 
 # Save results in a DataFrame
@@ -107,20 +113,28 @@ df_gridcv.to_parquet("data_parquet/GridSearch_"+dep_selection+"_"+model_name+".p
 # ------------------------------------------------------------------------
 # compute Cross-validation scores to check overfitting on train set
 # ------------------------------------------------------------------------
+t0 = time()
 reg=RandomForestRegressor(max_features=None,max_depth=None,min_samples_split=2
-                          ,min_samples_leaf=10,n_estimators=200)
+                          #,min_samples_leaf=None
+                          ,n_estimators=300
+                          ,random_state=42)
 model = make_pipeline(preprocessing,reg)
 
 cross_val_scores=cross_val_score(model, X_train, y_train
-                        ,scoring="neg_mean_absolute_error"
+                        ,scoring="neg_median_absolute_error"
                         ,cv=folds_num,n_jobs=-1,verbose=20)
+
 # ------------------------------------------------------------------------
 # compute Test Scores
 # ------------------------------------------------------------------------
 # Apply the Model on full Train dataset
+t1_fit_start=time()
 model.fit(X_train, y_train)
+
 # Predict on Test dataset
+t0_predict = time()
 y_test_predict=model.predict(X_test)
+t0_predict_end = time()
 
 # Prediction Score
 predict_score_mae=mean_absolute_error(y_test, y_test_predict)
@@ -132,7 +146,12 @@ print("------------ Scoring ------------------")
 print("Cross-Validation Accuracy: %0.2f (+/- %0.2f)" % (-cross_val_scores.mean(), cross_val_scores.std() * 2))
 print("Price diff error MAE: %0.2f (+/- %0.2f)" % (mae, mae_std * 2))
 print("Percent of Price error MAPE: %0.2f (+/- %0.2f)" % (mape, mape_std * 2))
-print("Price error RMSE: %0.2f (+/- %0.2f)" % (rmse, rmse * 2))
+print("Price error RMSE: %0.2f (+/- %0.2f)" % (rmse, rmse_std * 2))
+print("---------------------------------------")
+print("Done All in : %0.3fs" % (time() - t0))
+print("Done CrossVal in : %0.3fs" % (t1_fit_start - t0))
+print("Done Fit in : %0.3fs" % (t0_predict - t1_fit_start))
+print("Done Predict in : %0.3fs" % (t0_predict_end - t0_predict))
 print("---------------------------------------")
 
 f, ax0 = plt.subplots(1, 1, sharey=True)
@@ -155,10 +174,11 @@ features_names = columns[features_scores_ordering]
 # create DataFrame with Features Names & Score
 features_df=pd.DataFrame(data=features_importances,index=features_names).reset_index()
 features_df.columns = ['feature', 'score']
-features_df.to_parquet("data_parquet/FeatureImportance_"+dep_selection+"_RandomForest.parquet", engine='fastparquet',compression='GZIP')
+features_df.to_parquet("data_parquet/FeatureImportance_"+dep_selection+"_"+model_name+".parquet"
+                       , engine='fastparquet',compression='GZIP')
 
 plt.figure(figsize=(10, 3))
-top_x=20
+top_x=13
 x = np.arange(top_x)
 plt.bar(x, features_df['score'][:top_x])
 plt.xticks(x, features_df['feature'][:top_x], rotation=90, fontsize=10);

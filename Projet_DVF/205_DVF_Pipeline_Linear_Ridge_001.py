@@ -80,7 +80,7 @@ model = make_pipeline(preprocessing,reg)
 # Search hyper-parameters 
 folds_num=5
 print(model.get_params())
-model_grid = GridSearchCV(model,tuned_parameters,scoring="neg_mean_absolute_error", n_jobs=-1, cv=5)
+model_grid = GridSearchCV(model,tuned_parameters,scoring="neg_median_absolute_error", n_jobs=-1, cv=5)
 model_grid.fit(X_train, y_train)
 print("Best parameters set found on train set:")
 print(model_grid.best_params_)
@@ -102,7 +102,7 @@ reg=Ridge(fit_intercept=True,normalize=True, alpha=.001)
 model = make_pipeline(preprocessing,reg)
 
 cross_val_scores=cross_val_score(model, X_train, y_train
-                        , scoring="neg_mean_absolute_error",cv=folds_num,n_jobs=-1)
+                        , scoring="neg_median_absolute_error",cv=folds_num,n_jobs=-1)
 
 # Apply the Model on full Train dataset
 model.fit(X_train, y_train)
