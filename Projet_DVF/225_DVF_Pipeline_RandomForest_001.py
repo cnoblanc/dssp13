@@ -87,7 +87,7 @@ model = make_pipeline(preprocessing,reg)
 # Search hyper-parameters 
 #print(model.get_params())
 t0 = time()
-model_grid = GridSearchCV(model,tuned_parameters,scoring="neg_median_absolute_error"
+model_grid = GridSearchCV(model,tuned_parameters,scoring="neg_mean_absolute_error"
                           ,n_jobs=-1,cv=5,verbose=20)
 model_grid.fit(X_train, y_train)
 print("---------------------------------------")
@@ -121,7 +121,7 @@ reg=RandomForestRegressor(max_features=None,max_depth=None,min_samples_split=2
 model = make_pipeline(preprocessing,reg)
 
 cross_val_scores=cross_val_score(model, X_train, y_train
-                        ,scoring="neg_median_absolute_error"
+                        ,scoring="neg_mean_absolute_error"
                         ,cv=folds_num,n_jobs=-1,verbose=20)
 
 # ------------------------------------------------------------------------

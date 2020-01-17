@@ -71,7 +71,7 @@ model = make_pipeline(preprocessing,reg)
 # compute Cross-validation scores to not over-fit on test set for hyper-parameter search
 folds_num=5
 cross_val_scores=cross_val_score(model, X_train, y_train
-                        , scoring="neg_median_absolute_error",cv=folds_num,n_jobs=-1)
+                        , scoring="neg_mean_absolute_error",cv=folds_num,n_jobs=-1)
 
 # Apply the Model on full Train dataset
 model.fit(X_train, y_train)

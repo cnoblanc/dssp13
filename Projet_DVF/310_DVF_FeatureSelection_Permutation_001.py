@@ -81,7 +81,9 @@ preprocessing = make_column_transformer(
 model = make_pipeline(preprocessing)
 # Transform the Train & Test dataset
 X_train_transformed=model.fit_transform(X_train)
+print("Train set transformed Done: fit_transform")
 X_test_transformed=model.transform(X_test)
+print("Test set transformed Done: transform")
 
 # -------------------
 # Permutation Features importance
@@ -115,7 +117,7 @@ from sklearn.experimental import enable_hist_gradient_boosting
 from sklearn.ensemble import HistGradientBoostingRegressor
 reg=HistGradientBoostingRegressor(
     loss='least_squares', learning_rate=0.1, max_depth=None
-        , scoring="neg_median_absolute_error", validation_fraction=0.1
+        , scoring="neg_mean_absolute_error", validation_fraction=0.1
         ,max_bins=255,n_iter_no_change=5, tol=1e-07, verbose=0
         ,min_samples_leaf=200
         ,max_iter=500)
@@ -130,15 +132,13 @@ print("Permutation Importance Done.")
 # Show the feature importance weights : 
 print(eli5.format_as_text(eli5.explain_weights(perm,top=50,feature_names = X_test.columns.tolist())))
 
-
 # -------------------
-# Random Forest
+# LightGBM
 # -------------------
-from sklearn.ensemble import RandomForestRegressor
-reg=RandomForestRegressor(max_features=None,max_depth=None,min_samples_split=2
-                          #,min_samples_leaf=None
-                          ,n_estimators=300
-                          ,random_state=42)
+from lightgbm import LGBMRegressor
+reg=LGBMRegressor(random_state=42,n_jobs=-1,silent=True
+                  ,max_depth=50,num_leaves=40
+                  ,learning_rate=0.06,n_estimators=2000)
 # First, fit the regressor with transformed X
 reg.fit(X_train_transformed, y_train)
 print("Regression Fit Done.")
@@ -149,4 +149,5 @@ perm.fit(X_test_transformed, y_test)
 print("Permutation Importance Done.")
 # Show the feature importance weights : 
 print(eli5.format_as_text(eli5.explain_weights(perm,top=50,feature_names = X_test.columns.tolist())))
+
 

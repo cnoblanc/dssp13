@@ -81,7 +81,7 @@ tuned_parameters={ 'histgradientboostingregressor__min_samples_leaf':[50,100,200
 
 reg=HistGradientBoostingRegressor(
     loss='least_squares', learning_rate=0.1, max_depth=None
-        , scoring="neg_median_absolute_error", validation_fraction=0.1
+        , scoring="neg_mean_absolute_error", validation_fraction=0.1
         ,max_bins=255,n_iter_no_change=5, tol=50, verbose=0)
 model = make_pipeline(preprocessing,reg)
 
@@ -91,7 +91,7 @@ model = make_pipeline(preprocessing,reg)
 # Search hyper-parameters 
 #print(model.get_params())
 t0 = time()
-model_grid = GridSearchCV(model,tuned_parameters,scoring="neg_median_absolute_error"
+model_grid = GridSearchCV(model,tuned_parameters,scoring="neg_mean_absolute_error"
                           ,n_jobs=-1,cv=5,verbose=20)
 model_grid.fit(X_train, y_train)
 print("---------------------------------------")
@@ -120,14 +120,14 @@ df_gridcv.to_parquet("data_parquet/GridSearch_"+dep_selection+"_"+model_name+".p
 t0 = time()
 reg=HistGradientBoostingRegressor(
     loss='least_squares', learning_rate=0.1, max_depth=None
-        , scoring="neg_median_absolute_error", validation_fraction=0.1
+        , scoring="neg_mean_absolute_error", validation_fraction=0.1
         ,max_bins=255,n_iter_no_change=5, tol=1e-07, verbose=0
         ,min_samples_leaf=200
         ,max_iter=500)
 model = make_pipeline(preprocessing,reg)
 
 cross_val_scores=cross_val_score(model, X_train, y_train
-                        ,scoring="neg_median_absolute_error"
+                        ,scoring="neg_mean_absolute_error"
                         ,cv=folds_num,n_jobs=-1,verbose=20)
 # ------------------------------------------------------------------------
 # compute Test Scores
@@ -195,7 +195,7 @@ import dvf_learning_curve
 
 reg=HistGradientBoostingRegressor(
     loss='least_squares', learning_rate=0.1, max_depth=None
-        , scoring="neg_median_absolute_error", validation_fraction=0.1
+        , scoring="neg_mean_absolute_error", validation_fraction=0.1
         ,max_bins=255,n_iter_no_change=5, tol=1e-07, verbose=0
         ,min_samples_leaf=200
         ,max_iter=500)
@@ -204,7 +204,7 @@ model = make_pipeline(preprocessing,reg)
 title = "Learning Curves ("+model_name+")"
 dvf_learning_curve.plot_learning_curve(model, title, X_df, y
                     ,cv=5, n_jobs=-1,verbose=20
-                    ,scoring="neg_median_absolute_error"
+                    ,scoring="neg_mean_absolute_error"
                     ,train_sizes=np.linspace(.1, 1, 10))
 
 X_df.shape
