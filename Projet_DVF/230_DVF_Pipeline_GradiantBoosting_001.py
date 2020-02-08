@@ -19,8 +19,13 @@ dep_selection="All"
 model_name="GradiantBoosting"
 #dep_selection="77"
 df=dvfdata.loadDVF_Maisons(departement=dep_selection,refresh_force=False
-                           ,add_commune=True,filterColsInsee=True)
+                           ,add_commune=True,filterColsInsee="None")
 df_prepared=dvfdata.prepare_df(df,remove_categories=False)
+# Keep only random part of all records.
+#df_prepared=df_prepared.sample(n=700000, random_state=42)
+
+df_prepared = df_prepared.drop(columns=['departement','n_days','quarter','department_city_dist'])
+columns = df_prepared.columns
 
 # Split Train / Test
 from sklearn.model_selection import cross_val_score
@@ -50,10 +55,13 @@ from sklearn.metrics import mean_squared_error,mean_absolute_error
 
 # Get the list of all possible categories from X_df
 categories = [X_df[column].unique() for column in X_df[cat_cols]]
+for i in range(len(categories)):
+    categories[i] = ['missing' if x is np.nan else x for x in categories[i]]
 category_pipeline = make_pipeline(
     SimpleImputer(strategy='constant', fill_value='missing')
     ,OrdinalEncoder(categories=categories)
-    #,OneHotEncoder(categories=categories)
+    #,OneHotEncoder(categories=categories,drop=‘first’)
+    #,StandardScaler()
 )
 
 numeric_pipeline=make_pipeline(
@@ -129,17 +137,20 @@ model = make_pipeline(preprocessing,reg)
 cross_val_scores=cross_val_score(model, X_train, y_train
                         ,scoring="neg_mean_absolute_error"
                         ,cv=folds_num,n_jobs=-1,verbose=20)
+print("CrossValidation score Done.")
 # ------------------------------------------------------------------------
 # compute Test Scores
 # ------------------------------------------------------------------------
 # Apply the Model on full Train dataset
 t1_fit_start=time()
 model.fit(X_train, y_train)
+print("Fit on Train. Done")
 
 # Predict on Test dataset
 t0_predict = time()
 y_test_predict=model.predict(X_test)
 t0_predict_end = time()
+print("Predict on Test. Done")
 
 # Prediction Score
 predict_score_mae=mean_absolute_error(y_test, y_test_predict)
@@ -159,13 +170,16 @@ print("Done Fit in : %0.3fs" % (t0_predict - t1_fit_start))
 print("Done Predict in : %0.3fs" % (t0_predict_end - t0_predict))
 print("---------------------------------------")
 
+# Prediction vs True price
 f, ax0 = plt.subplots(1, 1, sharey=True)
-ax0.scatter(y_test, y_test_predict,s=0.5)
+maxprice=1000000
+ax0.scatter(y_test, y_test_predict,s=1)
 ax0.set_ylabel('Target predicted')
 ax0.set_xlabel('True Target')
 ax0.set_title('%s, MAE=%.2f, RMSE=%.2f' % (model_name,predict_score_mae,predict_score_rmse))
-#ax0.set_xlim([0, 1000000])
-#ax0.set_ylim([0, 1000000])
+ax0.plot([0, maxprice], [0, maxprice], 'k-', color = 'lightblue')
+ax0.set_xlim([0, maxprice])
+ax0.set_ylim([0, maxprice])
 
 # -------------------
 # Features importance

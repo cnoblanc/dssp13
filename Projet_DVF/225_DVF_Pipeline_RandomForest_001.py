@@ -19,8 +19,13 @@ dep_selection="All"
 model_name="RandomForest"
 #dep_selection="77"
 df=dvfdata.loadDVF_Maisons(departement=dep_selection,refresh_force=False
-                           ,add_commune=True,filterColsInsee=True)
+                           ,add_commune=False,filterColsInsee="NoNe")
 df_prepared=dvfdata.prepare_df(df,remove_categories=False)
+# Keep only random part of all records.
+#df_prepared=df_prepared.sample(n=700000, random_state=42)
+
+df_prepared = df_prepared.drop(columns=['departement','n_days','quarter','department_city_dist'])
+columns = df_prepared.columns
 
 # Split Train / Test
 from sklearn.model_selection import cross_val_score
@@ -50,10 +55,12 @@ from sklearn.metrics import mean_squared_error,mean_absolute_error
 
 # Get the list of all possible categories from X_df
 categories = [X_df[column].unique() for column in X_df[cat_cols]]
+for i in range(len(categories)):
+    categories[i] = ['missing' if x is np.nan else x for x in categories[i]]
 category_pipeline = make_pipeline(
     SimpleImputer(strategy='constant', fill_value='missing')
     ,OrdinalEncoder(categories=categories)
-    #,OneHotEncoder(categories=categories)
+    #,OneHotEncoder(categories=categories,drop=‘first’)
 )
 
 numeric_pipeline=make_pipeline(
@@ -74,8 +81,8 @@ preprocessing = make_column_transformer(
 # Define the Model
 from sklearn.ensemble import RandomForestRegressor
 folds_num=5
-tuned_parameters={ 'randomforestregressor__min_samples_leaf':[5,10,20,50,100]
-                  ,'randomforestregressor__n_estimators':[50,100,200,300]}
+tuned_parameters={ 'randomforestregressor__min_samples_leaf':[5,10,20,50]
+                  ,'randomforestregressor__n_estimators':[100,200,300,500]}
 
 reg=RandomForestRegressor(max_features=None,max_depth=None,min_samples_split=2
                           ,random_state=42)
@@ -114,27 +121,29 @@ df_gridcv.to_parquet("data_parquet/GridSearch_"+dep_selection+"_"+model_name+".p
 # compute Cross-validation scores to check overfitting on train set
 # ------------------------------------------------------------------------
 t0 = time()
-reg=RandomForestRegressor(max_features=None,max_depth=None,min_samples_split=2
-                          #,min_samples_leaf=None
-                          ,n_estimators=300
+reg=RandomForestRegressor(max_features=None,max_depth=100,min_samples_split=2
+                          ,min_samples_leaf=10
+                          ,n_estimators=100
                           ,random_state=42)
 model = make_pipeline(preprocessing,reg)
 
 cross_val_scores=cross_val_score(model, X_train, y_train
                         ,scoring="neg_mean_absolute_error"
                         ,cv=folds_num,n_jobs=-1,verbose=20)
-
+print("CrossValidation score Done.")
 # ------------------------------------------------------------------------
 # compute Test Scores
 # ------------------------------------------------------------------------
 # Apply the Model on full Train dataset
 t1_fit_start=time()
 model.fit(X_train, y_train)
+print("Fit on Train. Done")
 
 # Predict on Test dataset
 t0_predict = time()
 y_test_predict=model.predict(X_test)
 t0_predict_end = time()
+print("Predict on Test. Done")
 
 # Prediction Score
 predict_score_mae=mean_absolute_error(y_test, y_test_predict)
@@ -154,13 +163,17 @@ print("Done Fit in : %0.3fs" % (t0_predict - t1_fit_start))
 print("Done Predict in : %0.3fs" % (t0_predict_end - t0_predict))
 print("---------------------------------------")
 
+# Prediction vs True price
 f, ax0 = plt.subplots(1, 1, sharey=True)
+maxprice=1000000
 ax0.scatter(y_test, y_test_predict,s=0.5)
 ax0.set_ylabel('Target predicted')
 ax0.set_xlabel('True Target')
 ax0.set_title('%s, MAE=%.2f, RMSE=%.2f' % (model_name,predict_score_mae,predict_score_rmse))
-#ax0.set_xlim([0, 1000000])
-#ax0.set_ylim([0, 1000000])
+ax0.plot([0, maxprice], [0, maxprice], 'k-', color = 'lightblue')
+ax0.set_xlim([0, maxprice])
+ax0.set_ylim([0, maxprice])
+
 
 # -------------------
 # Features importance
@@ -189,7 +202,9 @@ plt.xticks(x, features_df['feature'][:top_x], rotation=90, fontsize=10);
 import dvf_learning_curve
 
 reg=RandomForestRegressor(max_features=None,max_depth=None,min_samples_split=2
-                          ,min_samples_leaf=10,n_estimators=200)
+                          ,min_samples_leaf=10
+                          ,n_estimators=300
+                          ,random_state=42)
 model = make_pipeline(preprocessing,reg)
 
 title = "Learning Curves ("+model_name+")"

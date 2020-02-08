@@ -4,20 +4,20 @@ import numpy as np
 import pandas as pd
 from sqlalchemy import create_engine
 from pathlib import Path
+from math import sin, cos, sqrt, atan2, radians
 
 from sklearn.metrics import mean_squared_error,mean_absolute_error
 
-base_path="/Users/christophenoblanc/Documents/ProjetsPython/DSSP_Projet_DVF"
+base_path="/Users/christophenoblanc/Documents/ProjetsPython/DSSP_Projet_DVF/"
 
 def loadDVF_Maisons(departement='All',refresh_force=False,add_commune=True
-                    ,year='All',filterColsInsee=False):
+                    ,year='All',filterColsInsee="None"):
     engine = create_engine('postgresql://christophe:christophe@localhost:5432/dv3f')
-    mutation_fileName="data_parquet/mutation_france.parquet"
-    local_fileName="data_parquet/local_france.parquet"
-    parcelle_fileName="data_parquet/parcelle_france.parquet"
-    adresse_fileName="data_parquet/adresse_france.parquet"
-    all_fileName="data_parquet/all_france.parquet"
-    communes_insee_fileName="data_parquet/communes_insee.parquet"
+    mutation_fileName=base_path+"data_parquet/mutation_france.parquet"
+    local_fileName=base_path+"data_parquet/local_france.parquet"
+    parcelle_fileName=base_path+"data_parquet/parcelle_france.parquet"
+    adresse_fileName=base_path+"data_parquet/adresse_france.parquet"
+    all_fileName=base_path+"data_parquet/all_france.parquet"
     
     mutation_f = Path(mutation_fileName)
     if refresh_force==True or not mutation_f.is_file():
@@ -122,24 +122,14 @@ def loadDVF_Maisons(departement='All',refresh_force=False,add_commune=True
     # Add the Communes INSEE :
     communes_insee_refresh=False  
     if add_commune==True:
-        com_insee_f = Path(communes_insee_fileName)
-        if refresh_force==True or not com_insee_f.is_file():
-            print("Refreshing : Communes INSEE")
-            folder_path=os.path.join("data_INSEE_Communes")
-            file_path=folder_path+"/MDB-INSEE-V2_2016.xls"
-            communes_insee_df=pd.read_excel(io=file_path)   
-            communes_insee_df = communes_insee_df.rename(columns={'CODGEO':'commune'})
-            print("Save to local parquet file")
-            communes_insee_df.to_parquet(communes_insee_fileName, engine='fastparquet',compression='GZIP')
-            communes_insee_refresh=True
-        else:
-            print("Read Communes INSEE")
-            communes_insee_df=pd.read_parquet(communes_insee_fileName, engine='fastparquet')   
-
-        # Add new features in Comunes
-        communes_insee_df=transform_INSEE_features(communes_insee_df)
-        if filterColsInsee==True:
+        communes_insee_df=load_communes_insee()
         # Drop un-necessary columns
+        if filterColsInsee=="None":
+            communes_insee_df = communes_insee_df.drop(columns=['LIBGEO','DEP','CP','REG'])
+        if filterColsInsee=="Manual":
+            # Add new features in Comunes
+            communes_insee_df=transform_INSEE_features(communes_insee_df)
+            # Drop un-necessary columns     
             Drop_column_list=['LIBGEO','DEP','SEG Environnement Démographique Obsolète','CP'\
                               ,'Score Croissance Entrepreneuriale', 'SYN MEDICAL'\
                               , 'Seg Cap Fiscale', 'Nb Camping', 'SEG Croissance POP'\
@@ -205,7 +195,18 @@ def loadDVF_Maisons(departement='All',refresh_force=False,add_commune=True
             #        ,'commune']
             #communes_insee_df=communes_insee_df[Columns_to_keep]
             
-            # END OF : filterColsInsee==True
+            # END OF : filterColsInsee="Manual":
+        if filterColsInsee=="Permutation":
+            # Add new features in Comunes
+            communes_insee_df=transform_INSEE_features(communes_insee_df)
+            Columns_to_keep=['Taux Evasion Client','Nb Création Commerces'
+                    ,'Reg Moyenne Salaires Prof Intermédiaire Horaires','Urbanité Ruralité'
+                    ,'Nb Ménages','Reg Moyenne Salaires Cadre Horaires','Taux de Hotel'
+                    ,'Taux de Mineurs','Taux de dentistes Libéraux BV','Nb Création Enteprises'
+                    ,'Dep Moyenne Salaires Horaires','Taux de Occupants Résidence Principale'
+                    ,'Taux de Homme','commune']   
+            communes_insee_df=communes_insee_df[Columns_to_keep]
+            # END OF : filterColsInsee="Permutation":
         
     # After getting the tables : Merge All
     print("Make the join for DVF")
@@ -236,7 +237,10 @@ def loadDVF_Maisons(departement='All',refresh_force=False,add_commune=True
     
     # Work on final data
     print("Final Calculations")
-    #dvf_all['n_days'] = dvf_all['datemut'].apply(lambda date: (date - pd.to_datetime("2013-01-01")).days)
+    dvf_all['n_days']=(dvf_all['datemut'].dt.date-pd.to_datetime("2013-01-01").date()).dt.days
+    dvf_all['quarter']= pd.to_datetime(dvf_all['datemut']).dt.quarter
+    #dvf_all['month']= pd.to_datetime(dvf_all['datemut']).dt.month
+    
     dvf_all = dvf_all.drop(columns=['datemut','idmutation','idmutinvar','iddispoloc','iddispopar'
             ,'typvoie','idparcelle','noplan','idadresse'])
     dvf_all.dropna(axis=0, subset=['geolong'], inplace=True) # remove records which we do not know the geolong
@@ -292,9 +296,31 @@ def update_category_features(df):
 def prepare_df(df, remove_categories=True):
     # Remove/filter the extrem values
     print("Prepare : filter extrem values")
-    selected_df=df[(df["valeurfonc"]<1000000) & (df["sterr"]<10000) & (df["nbpprinc"]<=10 ) & (df["nbpprinc"]>0) & (df["sbati"]<=500)]
+    #selected_df=df[(df["valeurfonc"]<1000000) & (df["sterr"]<10000) & (df["nbpprinc"]<=10 ) & (df["nbpprinc"]>0) & (df["sbati"]<=500)]
+    selected_df=df[ (df["sterr"]<10000) & (df["nbpprinc"]<=10 ) & (df["nbpprinc"]>0) & (df["sbati"]<=500)]
+    
+    print("Add Big cities per Departements Distance")
+    departement_geoloc=load_geo_communes()
+    df_dep_geo = pd.merge(selected_df, departement_geoloc, how='left', on=['departement'])
+    #selected_df['department_city_dist']='geolong', 'geolat', 'DepBigCity_lat','DepBigCity_long'
+    #cols_geo=df_dep_geo.columns
+    # approximate radius of earth in km
+    R = 6373.0
+    lat1 = np.radians(df_dep_geo['geolat'])
+    lon1 = np.radians(df_dep_geo['geolong'])
+    lat2 = np.radians(df_dep_geo['DepBigCity_lat'])
+    lon2 = np.radians(df_dep_geo['DepBigCity_long'])
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = np.sin(dlat / 2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2)**2
+    c = 2 * np.arctan(np.sqrt(a) / np.sqrt(1-a))
+    
+    df_dep_geo['department_city_dist']= R * c
+    #test=df_dep_geo[df_dep_geo['codepostal']=='77160']
+    
     print("Prepare : drop geo categories")
-    selected_df = selected_df.drop(columns=['quartier', 'commune', 'departement', 'communelabel', 'codepostal'])
+    selected_df = df_dep_geo.drop(columns=['quartier','commune','departement' \
+            ,'communelabel','codepostal','DepBigCity_lat','DepBigCity_long'])
     
     print("Prepare : update categories")
     selected_df=update_category_features(selected_df)
@@ -320,6 +346,69 @@ def print_cols_infos(df):
     print("-> Numeric Variables are :",num_cols)
     
     return None
+
+def load_communes_insee():
+    print("Read Communes INSEE")
+    communes_insee_fileName=base_path+"data_parquet/communes_insee.parquet"
+    com_insee_f = Path(communes_insee_fileName)
+    if not com_insee_f.is_file():
+        print("Refreshing : Communes INSEE")
+        folder_path=os.path.join("data_INSEE_Communes")
+        file_path=folder_path+"/MDB-INSEE-V2_2016.xls"
+        communes_insee_df=pd.read_excel(io=file_path)   
+        communes_insee_df = communes_insee_df.rename(columns={'CODGEO':'commune'})
+        print("Save to local parquet file")
+        communes_insee_df.to_parquet(communes_insee_fileName, engine='fastparquet',compression='GZIP')
+        communes_insee_refresh=True
+    else:
+        print("Read Communes INSEE")
+        communes_insee_df=pd.read_parquet(communes_insee_fileName, engine='fastparquet')   
+    return communes_insee_df
+
+def load_geo_communes():
+    com_dep_geo_fileName=base_path+"data_parquet/communes_dep_geo.parquet"
+    com_dep_geo_f = Path(com_dep_geo_fileName)
+    if not com_dep_geo_f.is_file():
+        print("Refreshing : Biggest Communes per Departement")
+        # Prepare the list of main cities per departements
+        folder_path=os.path.join("data_INSEE_Communes")
+        file_path=folder_path+"/MDB-INSEE-V2_2016.xls"
+        communes_insee_df=pd.read_excel(io=file_path)   
+        communes_insee_df = communes_insee_df.rename(columns={'CODGEO':'commune'})
+        communes_insee_df = communes_insee_df.rename(columns={'DEP':'departement'})
+        
+        commune_size_df=communes_insee_df[['commune','Population','LIBGEO','departement']]
+        commune_size_df=commune_size_df.sort_values(by='Population', ascending=False)
+        # Keep as well the biggest city for each departments
+        # Get the Biggest cities by Departments
+        idx = commune_size_df.groupby(['departement'])['Population'].transform(max) == commune_size_df['Population']
+        cities_department=commune_size_df[idx]
+    
+        file_path=base_path+"/data_Geo/EU_Geo_Circos_Regions_departements_circonscriptions_communes_gps.csv"
+        df_cities_csv=pd.read_csv(file_path,sep=';',decimal=".",dtype=np.str,encoding="utf_8")
+        df_cities_csv = df_cities_csv.rename(columns={'code_insee':'commune'})
+        df_geo_cities = df_cities_csv[['commune','latitude','longitude','éloignement']]
+        df_geo_cities['latitude']=pd.to_numeric(df_cities_csv['latitude'].replace('NaN',''), errors='raise')
+        df_geo_cities['longitude']=pd.to_numeric(df_cities_csv['longitude'].replace('NaN',''), errors='raise')
+        # Missing geos
+        missing_geo=df_cities_csv[pd.isna(df_cities_csv['latitude'])]
+        # 2.834 missing on 36.840 total
+        
+        # remove duplicates
+        df_geo_cities = df_geo_cities.drop_duplicates(['commune'],keep='first')
+        cities_department_geo = pd.merge(cities_department, df_geo_cities
+                                         , how='left', on=['commune'])
+        cities_department_geo = cities_department_geo.rename(columns={'latitude':'DepBigCity_lat'})
+        cities_department_geo = cities_department_geo.rename(columns={'longitude':'DepBigCity_long'})
+        df=cities_department_geo[['departement','DepBigCity_lat','DepBigCity_long']]
+        print("Save to local parquet file")
+        df.to_parquet(com_dep_geo_fileName, engine='fastparquet',compression='GZIP')
+    else:
+        print("Read Biggest Communes per Departement")
+        df=pd.read_parquet(com_dep_geo_fileName, engine='fastparquet')   
+        
+    return df
+
 
 def get_predict_errors(y, y_pred):
     y_absolute_error=(y_pred-y).abs()

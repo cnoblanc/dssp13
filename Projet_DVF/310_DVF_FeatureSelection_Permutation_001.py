@@ -11,14 +11,10 @@ import math
 from time import time
 import numpy as np
 import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-import matplotlib as mpl
 
 import dvfdata
 
 dep_selection="All"
-model_name="DecisionTree"
 df=dvfdata.loadDVF_Maisons(departement=dep_selection,refresh_force=False
                            ,add_commune=True,filterColsInsee=False)
 df_prepared=dvfdata.prepare_df(df,remove_categories=False)
@@ -54,20 +50,13 @@ category_pipeline = make_pipeline(
     SimpleImputer(strategy='constant', fill_value='missing')
     ,OrdinalEncoder(categories=categories)
     #,StandardScaler()
-    #,OneHotEncoder(categories=categories)
+    #,OneHotEncoder(categories=categories,drop=‘first’)
 )
 
 numeric_pipeline=make_pipeline(
     SimpleImputer(strategy='mean')
     #,StandardScaler()
 )
-
-# convenience function for combining the outputs of multiple transformer objects
-# applied to column subsets of the original feature space
-from sklearn.decomposition import PCA
-#pca = PCA(n_components=5,random_state=42)
-#pca = PCA(0.95,random_state=42)
-
 
 preprocessing = make_column_transformer(
      # tuples of transformers and column selections
@@ -108,7 +97,6 @@ perm.fit(X_test_transformed, y_test)
 print("Permutation Importance Done.")
 # Show the feature importance weights : 
 print(eli5.format_as_text(eli5.explain_weights(perm,top=50,feature_names = X_test.columns.tolist())))
-
 
 # -------------------
 # Gradiant Boosting

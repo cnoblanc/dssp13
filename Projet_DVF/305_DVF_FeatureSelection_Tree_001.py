@@ -57,7 +57,7 @@ category_pipeline = make_pipeline(
     SimpleImputer(strategy='constant', fill_value='missing')
     ,OrdinalEncoder(categories=categories)
     #,StandardScaler()
-    #,OneHotEncoder(categories=categories)
+    #,OneHotEncoder(categories=categories,drop=‘first’)
 )
 
 numeric_pipeline=make_pipeline(
@@ -215,7 +215,12 @@ plt.bar(x, pca_dim.explained_variance_ratio_)
 plt.title("PCA Dimension variance Ratio")
 plt.show()
 
-
+#-----------------
+# SVD : example
+# ----------------
+#from sklearn.decomposition import TruncatedSVD
+#from sklearn.linear_model import LogisticRegression
+#clf = make_pipeline(TruncatedSVD(n_components=100), LogisticRegression())
 
 
 

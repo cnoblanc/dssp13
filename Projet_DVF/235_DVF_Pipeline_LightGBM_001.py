@@ -19,10 +19,13 @@ dep_selection="All"
 model_name="LigthGBM"
 #dep_selection="77"
 df=dvfdata.loadDVF_Maisons(departement=dep_selection,refresh_force=False
-                           ,add_commune=True,filterColsInsee=False)
+                           ,add_commune=False,filterColsInsee="Permutation")
 df_prepared=dvfdata.prepare_df(df,remove_categories=False)
 # Keep only random part of all records.
 #df_prepared=df_prepared.sample(n=700000, random_state=42)
+
+df_prepared = df_prepared.drop(columns=['departement','n_days','quarter','department_city_dist'])
+columns = df_prepared.columns
 
 # Split Train / Test
 from sklearn.model_selection import cross_val_score
@@ -33,6 +36,7 @@ from sklearn.model_selection import learning_curve
 # Exclude the Target predicted variable from to create the X and y
 X_df = df_prepared.drop(columns='valeurfonc')
 y = df_prepared['valeurfonc']
+#y = np.log1p(df_prepared['valeurfonc'])
 columns = X_df.columns
 
 # Get list of columns by type
@@ -52,10 +56,14 @@ from sklearn.metrics import mean_squared_error,mean_absolute_error
 
 # Get the list of all possible categories from X_df
 categories = [X_df[column].unique() for column in X_df[cat_cols]]
+for i in range(len(categories)):
+    categories[i] = ['missing' if x is np.nan else x for x in categories[i]]
+    #print(categories[i])
+    
 category_pipeline = make_pipeline(
     SimpleImputer(strategy='constant', fill_value='missing')
     ,OrdinalEncoder(categories=categories)
-    #,OneHotEncoder(categories=categories)
+    #,OneHotEncoder(categories=categories,drop=‘first’)
 )
 
 numeric_pipeline=make_pipeline(
@@ -78,8 +86,8 @@ from lightgbm import LGBMRegressor
 folds_num=5
 tuned_parameters={ 'max_depth':[50,70,100]
                   ,'num_leaves':[40,70,100]
-                  #,'learning_rate':[0.06,0.08,0.09]
-                  #,'n_estimators':[2000,4000,6000]
+                  ,'learning_rate':[0.06,0.08,0.09]
+                  ,'n_estimators':[2000,4000,6000]
                   #,'lgbmregressor__min_child_samples':[5,10,20,50]
                   #,'min_data_in_leaf'
                   }
@@ -90,7 +98,7 @@ reg=LGBMRegressor(random_state=42,n_jobs=-1,silent=True
 model = make_pipeline(preprocessing,reg)
 
 # ------------------------------------------------------------------------
-# Search hyper-parameters 
+# Pre-processing
 # ------------------------------------------------------------------------
 # Search hyper-parameters 
 #print(model.get_params())
@@ -100,6 +108,12 @@ model = make_pipeline(preprocessing)
 # Transform the Train & Test dataset
 X_train_transformed=model.fit_transform(X_train)
 X_test_transformed=model.transform(X_test)
+
+# ------------------------------------------------------------------------
+# Search hyper-parameters 
+# ------------------------------------------------------------------------
+# Search hyper-parameters 
+#print(model.get_params())
 
 t0 = time()
 # Exclude the preprocessing to save time during GridSearch (do not do it at each iteration)
@@ -156,12 +170,19 @@ y_test_predict=model.predict(X_test)
 t0_predict_end = time()
 print("Predict on Test. Done")
 
-# Prediction Score
-predict_score_mae=mean_absolute_error(y_test, y_test_predict)
-predict_score_rmse=math.sqrt(mean_squared_error(y_test, y_test_predict))
+# Prediction Score : transformation réciproque
+y_test_recip=y_test
+y_test_predict_recip=y_test_predict
+
+#y_test_recip=np.expm1(y_test)
+#y_test_predict_recip=np.expm1(y_test_predict)
+#cross_val_scores_2=np.expm1(cross_val_scores)
+
+predict_score_mae=mean_absolute_error(y_test_recip, y_test_predict_recip)
+predict_score_rmse=math.sqrt(mean_squared_error(y_test_recip, y_test_predict_recip))
 #predict_score_msle=mean_squared_log_error(y_test, y_test_predict_non_negative)
 
-mae,mae_std,mape, mape_std,mse,mse_std,rmse,rmse_std = dvfdata.get_predict_errors(y=y_test, y_pred=y_test_predict)
+mae,mae_std,mape, mape_std,mse,mse_std,rmse,rmse_std = dvfdata.get_predict_errors(y=y_test_recip, y_pred=y_test_predict_recip)
 print("------------ Scoring ------------------")
 print("Cross-Validation Accuracy: %0.2f (+/- %0.2f)" % (-cross_val_scores.mean(), cross_val_scores.std() * 2))
 print("Price diff error MAE: %0.2f (+/- %0.2f)" % (mae, mae_std * 2))
@@ -174,13 +195,17 @@ print("Done Fit in : %0.3fs" % (t0_predict - t1_fit_start))
 print("Done Predict in : %0.3fs" % (t0_predict_end - t0_predict))
 print("---------------------------------------")
 
+# Prediction vs True price
 f, ax0 = plt.subplots(1, 1, sharey=True)
-ax0.scatter(y_test, y_test_predict,s=0.5)
+maxprice=1000000
+#ax0.scatter(np.expm1(y_test), np.expm1(y_test_predict),s=0.5)
+ax0.scatter(y_test, y_test_predict_recip,s=0.5)
 ax0.set_ylabel('Target predicted')
 ax0.set_xlabel('True Target')
 ax0.set_title('%s, MAE=%.2f, RMSE=%.2f' % (model_name,predict_score_mae,predict_score_rmse))
-#ax0.set_xlim([0, 1000000])
-#ax0.set_ylim([0, 1000000])
+ax0.plot([0, maxprice], [0, maxprice], 'k-', color = 'lightblue')
+ax0.set_xlim([0, maxprice])
+ax0.set_ylim([0, maxprice])
 
 # -------------------
 # Features importance
