@@ -20,7 +20,7 @@ dep_selection="All"
 model_name="Regression Ridge"
 #dep_selection="77"
 df=dvfdata.loadDVF_Maisons(departement=dep_selection,refresh_force=False
-                           ,add_commune=False,filterColsInsee="Permutation")
+                           ,add_commune=True,filterColsInsee="None")
 df_prepared=dvfdata.prepare_df(df,remove_categories=False)
 # Keep only random part of all records.
 #df_prepared=df_prepared.sample(n=700000, random_state=42)
@@ -166,8 +166,9 @@ ax0.set_ylabel('Target predicted')
 ax0.set_xlabel('True Target')
 ax0.set_title('%s, MAE=%.2f, RMSE=%.2f' % (model_name,predict_score_mae,predict_score_rmse))
 ax0.plot([0, maxprice], [0, maxprice], 'k-', color = 'lightblue')
+ax0.plot([0, maxprice], [0, 0], 'k-', color = 'lightblue')
 ax0.set_xlim([0, maxprice])
-ax0.set_ylim([0, maxprice])
+ax0.set_ylim([-150000, maxprice])
 
 # -------------------
 # Features importance

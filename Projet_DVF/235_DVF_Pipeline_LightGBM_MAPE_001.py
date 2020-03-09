@@ -19,12 +19,12 @@ dep_selection="All"
 model_name="LigthGBM"
 #dep_selection="77"
 df=dvfdata.loadDVF_Maisons(departement=dep_selection,refresh_force=False
-                           ,add_commune=True,filterColsInsee="None")
+                           ,add_commune=True,filterColsInsee="Permutation")
 df_prepared=dvfdata.prepare_df(df,remove_categories=False)
 # Keep only random part of all records.
 #df_prepared=df_prepared.sample(n=700000, random_state=42)
 
-df_prepared = df_prepared.drop(columns=['departement','n_days','quarter','department_city_dist'])
+#df_prepared = df_prepared.drop(columns=['departement','n_days','quarter','department_city_dist'])
 #columns = df_prepared.columns
 
 # Split Train / Test
@@ -120,6 +120,13 @@ X_test_transformed=model.transform(X_test)
 # ------------------------------------------------------------------------
 # Search hyper-parameters 
 #print(model.get_params())
+
+# Define de scorer object to be the personalized MAPE
+from mape_error_module import mean_absolute_percentage_error
+from sklearn.metrics import make_scorer
+mape_scorer = make_scorer(mean_absolute_percentage_error, greater_is_better=False)
+
+t0 = time()
 tuned_parameters={ 'max_depth':[20,30,40,50,70]
                   ,'num_leaves':[5,10,20,40]
                   ,'learning_rate':[0.04,0.05,0.06]
@@ -127,16 +134,10 @@ tuned_parameters={ 'max_depth':[20,30,40,50,70]
                   #,'lgbmregressor__min_child_samples':[5,10,20,50]
                   #,'min_data_in_leaf'
                   }
-#model_grid=RandomizedSearchCV(estimator=reg,param_distributions=tuned_parameters
-#                          ,scoring="neg_mean_absolute_error",refit=True
-#                          ,cv=2,verbose=10,n_iter=25)
-#print(model_grid.best_params_)
-
-
-t0 = time()
-# Exclude the preprocessing to save time during GridSearch (do not do it at each iteration)
-model_grid = GridSearchCV(reg,tuned_parameters,scoring="neg_mean_absolute_error"
-                          ,n_jobs=-1,cv=5,verbose=20)
+model_grid=RandomizedSearchCV(estimator=reg,param_distributions=tuned_parameters
+                          ,scoring=mape_scorer
+                          ,refit=True
+                          ,cv=2,verbose=20,n_iter=25)
 model_grid.fit(X_train_transformed, y_train)
 print("---------------------------------------")
 print("Best parameters set found on train set:")
@@ -148,7 +149,7 @@ print("---------------------------------------")
 # Save results in a DataFrame
 df_gridcv = pd.DataFrame(model_grid.cv_results_)
 gridcv_columns_to_keep = [
-    #'param_max_depth',
+    'param_max_depth',
     'param_num_leaves',
     'param_learning_rate',
     'param_n_estimators',
@@ -158,20 +159,19 @@ gridcv_columns_to_keep = [
 ]
 df_gridcv = df_gridcv[gridcv_columns_to_keep]
 df_gridcv = df_gridcv.sort_values(by='mean_test_score', ascending=False)
-df_gridcv.to_parquet("data_parquet/GridSearch_"+dep_selection+"_"+model_name+".parquet", engine='fastparquet',compression='GZIP')
+#df_gridcv.to_parquet("data_parquet/GridSearch_"+dep_selection+"_"+model_name+".parquet", engine='fastparquet',compression='GZIP')
 
 # ------------------------------------------------------------------------
 # compute Cross-validation scores to check overfitting on train set
 # ------------------------------------------------------------------------
 t0 = time()
-reg=LGBMRegressor(random_state=42,n_jobs=-1,silent=True
-                  ,max_depth=50,num_leaves=40,learning_rate=0.06,n_estimators=2000)
+reg = model_grid.best_estimator_
+#reg=LGBMRegressor(random_state=42,n_jobs=-1,silent=True
+#                  ,max_depth=50,num_leaves=40,learning_rate=0.06,n_estimators=2000)
 
-model = make_pipeline(preprocessing,reg)
-
-cross_val_scores=cross_val_score(model, X_train, y_train
-                        ,scoring="neg_mean_absolute_error"
-                        ,cv=folds_num,n_jobs=1,verbose=20)
+cross_val_scores=cross_val_score(reg, X_train_transformed, y_train
+                        ,scoring=mape_scorer
+                        ,cv=folds_num,n_jobs=-1,verbose=20)
 print("CrossValidation score Done.")
 
 # ------------------------------------------------------------------------
@@ -179,11 +179,11 @@ print("CrossValidation score Done.")
 # ------------------------------------------------------------------------
 # Apply the Model on full Train dataset
 t1_fit_start=time()
-model.fit(X_train, y_train)
+reg.fit(X_train_transformed, y_train)
 print("Fit on Train. Done")
 # Predict on Test dataset
 t0_predict = time()
-y_test_predict=model.predict(X_test)
+y_test_predict=reg.predict(X_test_transformed)
 t0_predict_end = time()
 print("Predict on Test. Done")
 
@@ -219,7 +219,7 @@ maxprice=1000000
 ax0.scatter(y_test, y_test_predict_recip,s=0.5)
 ax0.set_ylabel('Target predicted')
 ax0.set_xlabel('True Target')
-ax0.set_title('%s, MAE=%.2f, MAPE=%.2f' % (model_name,predict_score_mae,mape))
+ax0.set_title('%s, MAE=%.2f, RMSE=%.2f' % (model_name,predict_score_mae,predict_score_rmse))
 ax0.plot([0, maxprice], [0, maxprice], 'k-', color = 'lightblue')
 ax0.set_xlim([0, maxprice])
 ax0.set_ylim([0, maxprice])

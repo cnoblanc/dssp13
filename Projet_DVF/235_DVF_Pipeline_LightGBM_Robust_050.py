@@ -19,18 +19,18 @@ dep_selection="All"
 model_name="LigthGBM"
 #dep_selection="77"
 df=dvfdata.loadDVF_Maisons(departement=dep_selection,refresh_force=False
-                           ,add_commune=True,filterColsInsee="None")
+                           ,add_commune=False,filterColsInsee="Permutation")
 df_prepared=dvfdata.prepare_df(df,remove_categories=False)
 # Keep only random part of all records.
 #df_prepared=df_prepared.sample(n=700000, random_state=42)
 
-df_prepared = df_prepared.drop(columns=['departement','n_days','quarter','department_city_dist'])
-#columns = df_prepared.columns
+#df_prepared = df_prepared.drop(columns=['departement','n_days','quarter','department_city_dist'])
+columns = df_prepared.columns
 
 # Split Train / Test
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import train_test_split
-from sklearn.model_selection import GridSearchCV,RandomizedSearchCV
+from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import learning_curve
 
 # Exclude the Target predicted variable from to create the X and y
@@ -51,8 +51,8 @@ X_train, X_test, y_train, y_test = train_test_split(X_df, y, random_state=42)
 from sklearn.pipeline import make_pipeline
 from sklearn.compose import make_column_transformer
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import OrdinalEncoder,OneHotEncoder, StandardScaler
-from sklearn.metrics import mean_squared_error,mean_absolute_error,make_scorer
+from sklearn.preprocessing import OrdinalEncoder,OneHotEncoder, StandardScaler,PolynomialFeatures
+from sklearn.metrics import mean_squared_error,mean_absolute_error
 
 # Get the list of all possible categories from X_df
 categories = [X_df[column].unique() for column in X_df[cat_cols]]
@@ -64,6 +64,7 @@ category_pipeline = make_pipeline(
     SimpleImputer(strategy='constant', fill_value='missing')
     ,OrdinalEncoder(categories=categories)
     #,OneHotEncoder(categories=categories,drop=‘first’)
+    #,StandardScaler()
 )
 
 numeric_pipeline=make_pipeline(
@@ -77,31 +78,26 @@ preprocessing = make_column_transformer(
      # tuples of transformers and column selections
      (numeric_pipeline, num_cols)
     ,(category_pipeline,cat_cols)
+    ,(PolynomialFeatures(2,interaction_only=False),columns)
     ,n_jobs=-1
     ,verbose=20
 )
 
 # Define the Model
 from lightgbm import LGBMRegressor
-from sklearn.linear_model import RANSACRegressor
-
 folds_num=5
-tuned_parameters={ #'max_depth':[20,30,40,50,70]
-                  'num_leaves':[5,10,20]
-                  ,'learning_rate':[0.03,0.04,0.05,0.06]
-                  ,'n_estimators':[300,400,500]
+tuned_parameters={ 'max_depth':[40,50,70]
+                  ,'num_leaves':[30,40,70]
+                  ,'learning_rate':[0.05,0.06,0.08]
+                  ,'n_estimators':[1500,2000,3000]
                   #,'lgbmregressor__min_child_samples':[5,10,20,50]
                   #,'min_data_in_leaf'
                   }
 
-# for 1 departement : 92
-#reg=LGBMRegressor(random_state=42,n_jobs=-1,silent=True
-#                  ,max_depth=40,num_leaves=10,learning_rate=0.05,n_estimators=400)
 reg=LGBMRegressor(random_state=42,n_jobs=-1,silent=True
-                  ,max_depth=50,num_leaves=40,learning_rate=0.06,n_estimators=2000)
-
-
-#model = make_pipeline(preprocessing,reg)
+                  ,max_depth=50,num_leaves=40
+                  ,learning_rate=0.06,n_estimators=2000)
+model = make_pipeline(preprocessing,reg)
 
 # ------------------------------------------------------------------------
 # Pre-processing
@@ -120,18 +116,6 @@ X_test_transformed=model.transform(X_test)
 # ------------------------------------------------------------------------
 # Search hyper-parameters 
 #print(model.get_params())
-tuned_parameters={ 'max_depth':[20,30,40,50,70]
-                  ,'num_leaves':[5,10,20,40]
-                  ,'learning_rate':[0.04,0.05,0.06]
-                  ,'n_estimators':[500,1000,1500,2000]
-                  #,'lgbmregressor__min_child_samples':[5,10,20,50]
-                  #,'min_data_in_leaf'
-                  }
-#model_grid=RandomizedSearchCV(estimator=reg,param_distributions=tuned_parameters
-#                          ,scoring="neg_mean_absolute_error",refit=True
-#                          ,cv=2,verbose=10,n_iter=25)
-#print(model_grid.best_params_)
-
 
 t0 = time()
 # Exclude the preprocessing to save time during GridSearch (do not do it at each iteration)
@@ -148,7 +132,7 @@ print("---------------------------------------")
 # Save results in a DataFrame
 df_gridcv = pd.DataFrame(model_grid.cv_results_)
 gridcv_columns_to_keep = [
-    #'param_max_depth',
+    'param_max_depth',
     'param_num_leaves',
     'param_learning_rate',
     'param_n_estimators',
@@ -165,13 +149,14 @@ df_gridcv.to_parquet("data_parquet/GridSearch_"+dep_selection+"_"+model_name+".p
 # ------------------------------------------------------------------------
 t0 = time()
 reg=LGBMRegressor(random_state=42,n_jobs=-1,silent=True
-                  ,max_depth=50,num_leaves=40,learning_rate=0.06,n_estimators=2000)
+                  ,max_depth=50,num_leaves=40
+                  ,learning_rate=0.06,n_estimators=2000)
 
 model = make_pipeline(preprocessing,reg)
 
 cross_val_scores=cross_val_score(model, X_train, y_train
                         ,scoring="neg_mean_absolute_error"
-                        ,cv=folds_num,n_jobs=1,verbose=20)
+                        ,cv=folds_num,n_jobs=-1,verbose=20)
 print("CrossValidation score Done.")
 
 # ------------------------------------------------------------------------
@@ -219,7 +204,7 @@ maxprice=1000000
 ax0.scatter(y_test, y_test_predict_recip,s=0.5)
 ax0.set_ylabel('Target predicted')
 ax0.set_xlabel('True Target')
-ax0.set_title('%s, MAE=%.2f, MAPE=%.2f' % (model_name,predict_score_mae,mape))
+ax0.set_title('%s, MAE=%.2f, RMSE=%.2f' % (model_name,predict_score_mae,predict_score_rmse))
 ax0.plot([0, maxprice], [0, maxprice], 'k-', color = 'lightblue')
 ax0.set_xlim([0, maxprice])
 ax0.set_ylim([0, maxprice])
@@ -263,57 +248,3 @@ dvf_learning_curve.plot_learning_curve(model, title, X_df, y
                     ,train_sizes=np.linspace(.1, 1, 10))
 
 X_df.shape
-
-# -------------------
-# Errors
-# -------------------
-X_test['abs_error']=(y_test_predict_recip-y_test).abs()
-X_test['price']=y_test
-X_test['price_predict']=y_test_predict_recip
-X_test['mape']= 100*((y_test_predict_recip-y_test)/y_test).abs()
-y_absolute_error=(y_test_predict_recip-y_test).abs()
-X_test.sort_values(by='abs_error', ascending=False,inplace=True)
-
-# Density of errors :
-sns.distplot(X_test['abs_error'],kde=False, rug=True)
-plt.suptitle("Hauts-de-Seine : Répartition erreurs de prédiction", fontsize=12,y=0.95) 
-plt.show()
-# -------------------
-# Carte des erreurs
-# -------------------
-# Carte avec départements de France :
-# Credit : https://perso.esiee.fr/~courivad/Python/15-geo.html
-import folium as flm
-from branca.colormap import linear
-
-#d = {'CodeDep': [77, 93], 'Population': [300000, 500000]}
-#df = pd.DataFrame(data=d)
-#df_dict = df.set_index('CodeDep')['Population']
-
-# For color map palette : http://colrd.com/palette/
-#colormap = linear.YlGn_09.scale(df_results.mae.min(),df_results.mae.max())
-#colormap = linear.Blues_09.scale(y_absolute_error.min(),y_absolute_error.max())
-colormap = linear.YlOrRd_09.scale(y_absolute_error.min(),y_absolute_error.max())
-colormap.caption = 'Prediction Price Absolute Error scale'
-base_path="/Users/christophenoblanc/Documents/ProjetsPython/DSSP_Projet_DVF/"
-file=base_path+"map_saved/"+'lightGBM'
-
-X_test.sort_values(by='abs_error', ascending=True,inplace=True)
-# Create the map
-centermap_lat=(X_test['geolat'].max()+X_test['geolat'].min())/2
-centermap_long=(X_test['geolong'].max()+X_test['geolong'].min())/2
-coords = (centermap_lat,centermap_long)
-map = flm.Map(location=coords, tiles='OpenStreetMap', zoom_start=12)
-
-for i in range(X_test.shape[0]):
-    flm.Circle([X_test.iloc[i].geolat, X_test.iloc[i].geolong], 10\
-            ,fill=True, fill_opacity=1\
-            ,fill_color=colormap(X_test.iloc[i].abs_error)
-            ,color=colormap(X_test.iloc[i].abs_error)) \
-        .add_to(map)
-        #.add_child(flm.Popup("Real Price is :",str(X_test.iloc[i].price),"; predicted is :",str(X_test.iloc[i].price_predict))).add_to(map)
-        #.add_to(map)\
-colormap.add_to(map)
-
-fileName=base_path+"map_saved/"+"perf_ligntgbm.html"
-map.save(outfile=fileName)

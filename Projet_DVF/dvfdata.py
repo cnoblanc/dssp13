@@ -4,14 +4,30 @@ import numpy as np
 import pandas as pd
 from sqlalchemy import create_engine
 from pathlib import Path
-from math import sin, cos, sqrt, atan2, radians
-
-from sklearn.metrics import mean_squared_error,mean_absolute_error
+#from math import sin, cos, sqrt, atan2, radians
+#from sklearn.metrics import mean_squared_error,mean_absolute_error
 
 base_path="/Users/christophenoblanc/Documents/ProjetsPython/DSSP_Projet_DVF/"
 
 def loadDVF_Maisons(departement='All',refresh_force=False,add_commune=True
                     ,year='All',filterColsInsee="None"):
+    """Construct a Pandas DataFrame with DVF+ data.
+
+    Parameters
+    ----------
+    filterColsInsee : when loading INSEE statistics, this parameter is used
+        to know what columns to keep from the INSEE file.
+        Possible parameter values are :
+        - "None" : no column filtering is applied, all INSEE columns are kept.
+        - "Manual" : only few columns are kept. the selected columns are defined
+          manually inside a list.
+        - "Permutation" : the selected columns is defined using the permutation
+          algorithme.
+
+    Returns
+    -------
+    dvf_all : pandas Dataframe
+    """
     engine = create_engine('postgresql://christophe:christophe@localhost:5432/dv3f')
     mutation_fileName=base_path+"data_parquet/mutation_france.parquet"
     local_fileName=base_path+"data_parquet/local_france.parquet"
@@ -296,8 +312,10 @@ def update_category_features(df):
 def prepare_df(df, remove_categories=True):
     # Remove/filter the extrem values
     print("Prepare : filter extrem values")
-    #selected_df=df[(df["valeurfonc"]<1000000) & (df["sterr"]<10000) & (df["nbpprinc"]<=10 ) & (df["nbpprinc"]>0) & (df["sbati"]<=500)]
-    selected_df=df[ (df["sterr"]<10000) & (df["nbpprinc"]<=10 ) & (df["nbpprinc"]>0) & (df["sbati"]<=500)]
+    selected_df=df[(df["valeurfonc"]>10) & (df["valeurfonc"]<1000000) \
+                   & (df["sterr"]<10000) & (df["nbpprinc"]<=10 ) \
+                   & (df["nbpprinc"]>0) & (df["sbati"]<=500)]
+    #selected_df=df[ (df["sterr"]<10000) & (df["nbpprinc"]<=10 ) & (df["nbpprinc"]>0) & (df["sbati"]<=500)]
     
     print("Add Big cities per Departements Distance")
     departement_geoloc=load_geo_communes()
@@ -319,7 +337,7 @@ def prepare_df(df, remove_categories=True):
     #test=df_dep_geo[df_dep_geo['codepostal']=='77160']
     
     print("Prepare : drop geo categories")
-    selected_df = df_dep_geo.drop(columns=['quartier','commune','departement' \
+    selected_df = df_dep_geo.drop(columns=['quartier','commune' \
             ,'communelabel','codepostal','DepBigCity_lat','DepBigCity_long'])
     
     print("Prepare : update categories")
@@ -347,6 +365,7 @@ def print_cols_infos(df):
     
     return None
 
+
 def load_communes_insee():
     print("Read Communes INSEE")
     communes_insee_fileName=base_path+"data_parquet/communes_insee.parquet"
@@ -357,8 +376,27 @@ def load_communes_insee():
         file_path=folder_path+"/MDB-INSEE-V2_2016.xls"
         communes_insee_df=pd.read_excel(io=file_path)   
         communes_insee_df = communes_insee_df.rename(columns={'CODGEO':'commune'})
+        
+        print("Transform INSEE features")
+        # Get list of columns by type
+        cat_cols= communes_insee_df.select_dtypes([np.object]).columns
+        cat_cols=cat_cols.drop(["commune","LIBGEO","DEP","CP"])
+        num_cols = communes_insee_df.select_dtypes([np.number]).columns
+        num_cols=num_cols.drop(["REG"])
+        
+        # List of null values by columns
+        #df_all_na = communes_insee_df.isnull().sum()
+        # for numeric values, replace missing by the mean
+        communes_insee_transf_df=communes_insee_df.fillna(communes_insee_df[num_cols].mean())
+        #df_num_na = communes_insee_transf_df.isnull().sum()
+        
+        # For categories, replace missing values by 'missing'
+        for col in cat_cols:
+            communes_insee_transf_df[col]=communes_insee_transf_df[col].replace(np.nan, 'missing')
+        #df_cat_na = communes_insee_transf_df.isnull().sum()
+        
         print("Save to local parquet file")
-        communes_insee_df.to_parquet(communes_insee_fileName, engine='fastparquet',compression='GZIP')
+        communes_insee_transf_df.to_parquet(communes_insee_fileName, engine='fastparquet',compression='GZIP')
         communes_insee_refresh=True
     else:
         print("Read Communes INSEE")
@@ -409,13 +447,18 @@ def load_geo_communes():
         
     return df
 
+from sklearn.metrics import make_scorer
+# https://stackoverflow.com/a/46205065/2523414
+def rmsle(y, y_pred):
+    return np.sqrt(np.mean(np.square(np.log1p(y_pred) - np.log1p(y))))
+rmsle_score = make_scorer(rmsle, greater_is_better=False)
 
 def get_predict_errors(y, y_pred):
     y_absolute_error=(y_pred-y).abs()
     y_squared_error=y_absolute_error**2
     y_absolut_error_pct= 100*((y_pred-y)/y).abs()
     
-    #y_logarithm_error=
+    #y_logarithm_error=rmsle_score(y, y_pred)
     
     return y_absolute_error.mean(), y_absolute_error.std() \
         ,y_absolut_error_pct.mean(), y_absolut_error_pct.std() \
@@ -423,5 +466,117 @@ def get_predict_errors(y, y_pred):
         ,math.sqrt(y_squared_error.mean()),math.sqrt(y_squared_error.std())
         
 
+def reduce_mem_usage(df):
+    """ iterate through all the columns of a dataframe and modify the data type
+        to reduce memory usage.
+    """
+    start_mem = df.memory_usage().sum() / 1024**2
+    print('Memory usage of dataframe is {:.2f} MB'.format(start_mem))
+    for col in df.columns:
+        col_type = df[col].dtype
+        if col_type != object:
+            c_min = df[col].min()
+            c_max = df[col].max()
+            if str(col_type)[:3] == 'int':
+                if c_min > np.iinfo(np.int8).min and c_max < np.iinfo(np.int8).max:
+                    df[col] = df[col].astype(np.int8)
+                elif c_min > np.iinfo(np.int16).min and c_max < np.iinfo(np.int16).max:
+                    df[col] = df[col].astype(np.int16)
+                elif c_min > np.iinfo(np.int32).min and c_max < np.iinfo(np.int32).max:
+                    df[col] = df[col].astype(np.int32)
+                elif c_min > np.iinfo(np.int64).min and c_max < np.iinfo(np.int64).max:
+                    df[col] = df[col].astype(np.int64)
+            else:
+                if c_min > np.finfo(np.float16).min and c_max < np.finfo(np.float16).max:
+                    df[col] = df[col].astype(np.float16)
+                elif c_min > np.finfo(np.float32).min and c_max < np.finfo(np.float32).max:
+                    df[col] = df[col].astype(np.float32)
+                else:
+                    df[col] = df[col].astype(np.float64)
+        else:
+            df[col] = df[col].astype('category')
+    end_mem = df.memory_usage().sum() / 1024**2
+    print('Memory usage after optimization is: {:.2f} MB'.format(end_mem))
+    print('Decreased by {:.1f}%'.format(100 * (start_mem - end_mem) / start_mem))
+    return df
 
+
+from sklearn.model_selection import train_test_split
+from time import time
+from sklearn.model_selection import cross_val_score
+
+def inliers_split(reg,X, y, exclude_outliers=0.2,scoring="neg_mean_absolute_error"
+                  ,inliers_rate=0.5,folds=5,random_state=42):
     
+    X_all=pd.DataFrame(X, index=y.index)
+    y_all=y.copy()
+    inliers_idx=pd.Int64Index([0])
+    #outliers_idx=pd.Int64Index()
+    #all_idx=pd.Int64Index(X_all.index)
+    folds_num=folds
+    inliers_qty=int(len(X_all)*(1-exclude_outliers))
+    
+    # Initialize
+    X_unknown=X_all    
+    X_inliers = pd.DataFrame(data=None, columns=X_all.columns) # keep an empty list
+    
+    y_unknown=y_all
+    y_inliers=pd.Series(data=None,name=y_all.name) # keep an empty list    
+    iteration=0
+    
+    while len(inliers_idx) < inliers_qty:
+        iteration+=1
+        print("Start iteration #",iteration)
+        # split the unknown data in Train & test
+        X_cand_train, X_cand_test, y_cand_train, y_cand_test = train_test_split(X_unknown, y_unknown,train_size=0.5, random_state=42)
+        t0 = time()
+        # Use inliers + new random to score the model (cross validation)
+        cross_val_scores=cross_val_score(reg, X_inliers.append(X_cand_train)
+                            , y_inliers.append(y_cand_train),scoring=scoring
+                            , cv=folds_num,n_jobs=-1,verbose=20)
+        print("CrossValidation score Done.")
+        t1_fit_start=time()
+        # use inliers + new random to train the model
+        reg.fit(X_inliers.append(X_cand_train), y_inliers.append(y_cand_train))
+        print("Fit on Train. Done")
+        # Predict on Test dataset
+        t0_predict = time()
+        y_test_predict=reg.predict(X_cand_test)
+        t0_predict_end = time()
+        print("Predict on Test. Done")
+        mae,mae_std,mape, mape_std,mse,mse_std,rmse,rmse_std = get_predict_errors(y=y_cand_test, y_pred=y_test_predict)
+        y_error=(y_test_predict-y_cand_test).abs()
+        print("------------ Scoring ------------------")
+        print("Cross-Validation Accuracy: %0.2f (+/- %0.2f)" % (-cross_val_scores.mean(), cross_val_scores.std() * 2))
+        print("Price diff error MAE: %0.2f (+/- %0.2f)" % (mae, mae_std * 2))
+        print("Percent of Price error MAPE: %0.2f (+/- %0.2f)" % (mape, mape_std * 2))
+        print("Price error RMSE: %0.2f (+/- %0.2f)" % (rmse, rmse_std * 2))
+        print("---------------------------------------")
+        print("Done All in : %0.3fs" % (time() - t0))
+        print("Done CrossVal in : %0.3fs" % (t1_fit_start - t0))
+        print("Done Fit in : %0.3fs" % (t0_predict - t1_fit_start))
+        print("Done Predict in : %0.3fs" % (t0_predict_end - t0_predict))
+        print("---------------------------------------")
+        
+        # keep only the best indices as inliers
+        keep_count=int(len(y_error)*inliers_rate)
+        if len(inliers_idx)+keep_count>inliers_qty:
+            keep_count=inliers_qty-len(inliers_idx)
+            
+        if iteration==1 :
+            inliers_idx=y_error.sort_values(ascending=True)[:keep_count].index
+        else :
+            new_inliers=y_error.sort_values(ascending=True)[:keep_count].index
+            inliers_idx=inliers_idx.append(new_inliers)
+        
+        # Next Iteration :
+        # remove inliers from X_all & y_all
+        X_unknown = X_all[X_all.index.isin(inliers_idx)==False]
+        y_unknown = y_all[y_all.index.isin(inliers_idx)==False]
+        # keep inliers data
+        X_inliers = X_all[X_all.index.isin(inliers_idx)==True]
+        y_inliers = y_all[y_all.index.isin(inliers_idx)==True]
+        
+    print("inliers_split, ended after iteration #",iteration)
+    return X_all[X_all.index.isin(inliers_idx)==True],y_all[y_all.index.isin(inliers_idx)==True]
+

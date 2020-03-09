@@ -20,5 +20,3 @@ for dep in range(10,100,1):
     print("Start map for:",dep)
     dvfmap.create_map(df,name="map_"+str(dep),subset=0)
 
-
-

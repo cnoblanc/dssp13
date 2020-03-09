@@ -19,10 +19,10 @@ dep_selection="All"
 model_name="DecisionTree"
 #dep_selection="77"
 df=dvfdata.loadDVF_Maisons(departement=dep_selection,refresh_force=False
-                           ,add_commune=False,filterColsInsee="None")
+                           ,add_commune=False,filterColsInsee="Permutation")
 df_prepared=dvfdata.prepare_df(df,remove_categories=False)
 # Keep only random part of all records.
-#df_prepared=df_prepared.sample(n=100000, random_state=42)
+#df_prepared=df_prepared.sample(n=700000, random_state=42)
 
 df_prepared = df_prepared.drop(columns=['departement','n_days','quarter','department_city_dist'])
 columns = df_prepared.columns
@@ -120,12 +120,12 @@ df_gridcv.to_parquet("data_parquet/GridSearch_"+dep_selection+"_"+model_name+".p
 # compute Cross-validation scores to not over-fit on test set for hyper-parameter search
 # ------------------------------------------------------------------------
 t0 = time()
-reg=DecisionTreeRegressor(random_state=42,max_depth=50,min_samples_leaf=50)
+reg=DecisionTreeRegressor(random_state=42,max_depth=100,min_samples_leaf=50)
 model = make_pipeline(preprocessing,reg)
 
 cross_val_scores=cross_val_score(model, X_train, y_train
                         ,scoring="neg_mean_absolute_error"
-                        ,cv=folds_num,n_jobs=-1,verbose=20)
+                        ,cv=folds_num,n_jobs=1,verbose=20)
 print("CrossValidation score Done.")
 # ------------------------------------------------------------------------
 # compute Test Scores
@@ -165,7 +165,7 @@ maxprice=1000000
 ax0.scatter(y_test, y_test_predict,s=1)
 ax0.set_ylabel('Target predicted')
 ax0.set_xlabel('True Target')
-ax0.set_title('%s, MAE=%.2f, RMSE=%.2f' % (model_name,predict_score_mae,predict_score_rmse))
+ax0.set_title('%s, MAE=%.2f, MAPE=%.2f' % (model_name,predict_score_mae,mape))
 ax0.plot([0, maxprice], [0, maxprice], 'k-', color = 'lightblue')
 ax0.set_xlim([0, maxprice])
 ax0.set_ylim([0, maxprice])
